@@ -632,7 +632,11 @@ export default function ComposerApp() {
                       const covering = getCoveringNoteAt(selectedPattern, row.midi, step);
                       const isStart = startEvent?.kind === 'note' && startEvent.pitch === row.midi;
                       const isHold = Boolean(covering) && !isStart;
-                      const isSelected = selectedEvent?.kind === 'note' && Boolean(covering) && covering.step === selectedEvent.step && covering.pitch === row.midi;
+                      const isSelected =
+                        selectedEvent?.kind === 'note' &&
+                        covering !== null &&
+                        covering.step === selectedEvent.step &&
+                        covering.pitch === row.midi;
                       return (
                         <button
                           key={`${row.midi}-${step}`}
