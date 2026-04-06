@@ -90,6 +90,19 @@ button.primary {
 }
 button.primary:hover { background: #222222; border-color: #222222; }
 
+button.transport-button {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  font-weight: 600;
+}
+button.transport-button:hover { background: #f6f6f6; border-color: var(--border-strong); }
+button.transport-button.state-active {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+
 button.state-active {
   background: #111111;
   color: #ffffff;

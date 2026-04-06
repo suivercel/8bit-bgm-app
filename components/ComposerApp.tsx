@@ -360,10 +360,10 @@ export default function ComposerApp() {
               >
                 New
               </button>
-              <button className={`primary ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(false)}>
+              <button className={`transport-button ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(false)}>
                 Play
               </button>
-              <button className={!isPlaying ? 'state-active' : ''} onClick={() => stopPlayback('Stopped')}>
+              <button className={`transport-button ${!isPlaying ? 'state-active' : ''}`} onClick={() => stopPlayback('Stopped')}>
                 Stop
               </button>
               <button onClick={saveProjectFile}>Save</button>
@@ -437,7 +437,7 @@ export default function ComposerApp() {
                   </div>
                 </div>
                 <div className="button-row">
-                  <button className={`primary ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(loopCheckMode)}>
+                  <button className={`transport-button ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(loopCheckMode)}>
                     {loopCheckMode ? 'Play Focused Loop' : 'Play Range'}
                   </button>
                 </div>
