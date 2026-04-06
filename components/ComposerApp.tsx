@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { exportWav, renderProject } from '@/lib/audio';
 import { createDefaultProject } from '@/lib/defaultProject';
 import {
@@ -12,9 +12,14 @@ import {
   noteNameToMidi,
   upsertStepEvent,
 } from '@/lib/music';
-import { MusicProject, NoteEvent, Pattern, PatternEvent, Track } from '@/lib/types';
+import { DrumType, MusicProject, NoteEvent, Pattern, PatternEvent, Track } from '@/lib/types';
 
-const NOTE_OPTIONS = ['C3', 'D3', 'Eb3', 'F3', 'G3', 'Ab3', 'Bb3', 'C4', 'D4', 'Eb4', 'F4', 'G4', 'Ab4', 'Bb4', 'C5', 'D5', 'Eb5', 'F5', 'G5', 'Ab5', 'Bb5', 'C6'];
+const KEY_OPTIONS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const NOTE_ROW_NAMES = ['C6', 'B5', 'Bb5', 'A5', 'Ab5', 'G5', 'F#5', 'F5', 'E5', 'Eb5', 'D5', 'C#5', 'C5', 'B4', 'Bb4', 'A4', 'Ab4', 'G4', 'F#4', 'F4', 'E4', 'Eb4', 'D4', 'C#4', 'C4'];
+const NOTE_ROWS = NOTE_ROW_NAMES.map((name) => ({ name, midi: noteNameToMidi(name) }));
+const DRUM_ROWS: DrumType[] = ['kick', 'snare', 'hat'];
+const LENGTH_OPTIONS = [1, 2, 3, 4] as const;
+const STAFF_LINE_CLASSES = new Set([2, 4, 5, 7, 11]);
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -30,6 +35,16 @@ function createProjectFileName(title: string) {
   return `${safe}.eightbit.json`;
 }
 
+function getCoveringNoteAt(pattern: Pattern | null, pitch: number, step: number): NoteEvent | null {
+  if (!pattern) return null;
+  for (const event of pattern.events) {
+    if (event.kind !== 'note') continue;
+    if (event.pitch !== pitch) continue;
+    if (step >= event.step && step < event.step + event.length) return event;
+  }
+  return null;
+}
+
 export default function ComposerApp() {
   const [project, setProject] = useState<MusicProject>(createDefaultProject);
   const [selectedTrackId, setSelectedTrackId] = useState<string>('t1');
@@ -39,6 +54,8 @@ export default function ComposerApp() {
   const [loopCheckMode, setLoopCheckMode] = useState(false);
   const [clipboardPattern, setClipboardPattern] = useState<Pattern | null>(null);
   const [clipboardMeta, setClipboardMeta] = useState<{ barIndex: number; trackName: string } | null>(null);
+  const [insertLength, setInsertLength] = useState<number>(2);
+  const [selectedEventStep, setSelectedEventStep] = useState<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -49,7 +66,14 @@ export default function ComposerApp() {
   );
 
   const selectedPattern = useMemo(() => getPattern(project, selectedTrackId, selectedBar), [project, selectedTrackId, selectedBar]);
+  const selectedEvent = useMemo(() => {
+    if (selectedEventStep === null) return null;
+    return getEventAtStep(selectedPattern, selectedEventStep);
+  }, [selectedEventStep, selectedPattern]);
 
+  useEffect(() => {
+    setSelectedEventStep(null);
+  }, [selectedBar, selectedTrackId]);
 
   const getPatternUsageCount = (draft: MusicProject, patternId: string, trackId: string) => {
     return draft.arrangement.filter((bar) => bar.patternIdByTrack[trackId] === patternId).length;
@@ -66,7 +90,7 @@ export default function ComposerApp() {
     const clonedPattern: Pattern = {
       ...JSON.parse(JSON.stringify(currentPattern)),
       id: `p${Date.now()}_${barIndex}_${trackId}`,
-      name: `${currentPattern.name} Bar ${barIndex + 1}`,
+      name: `${currentPattern.name} bar ${barIndex + 1}`,
       trackId,
     };
 
@@ -77,6 +101,15 @@ export default function ComposerApp() {
 
   const updateProject = (updater: (draft: MusicProject) => MusicProject) => {
     setProject((current) => updater(cloneProject(current)));
+  };
+
+  const updateSelectedPattern = (mutator: (pattern: Pattern) => Pattern) => {
+    updateProject((draft) => {
+      const editablePatternId = ensureEditablePatternId(draft, selectedTrackId, selectedBar);
+      if (!editablePatternId) return draft;
+      draft.patterns = draft.patterns.map((pattern) => (pattern.id === editablePatternId ? mutator(pattern) : pattern));
+      return draft;
+    });
   };
 
   const stopPlayback = () => {
@@ -126,84 +159,74 @@ export default function ComposerApp() {
     }
   };
 
-  const onStepToggle = (step: number, checked: boolean) => {
-    if (!selectedPattern || !selectedTrack) return;
+  const setNoteAt = (step: number, pitch: number) => {
+    if (!selectedPattern || !selectedTrack || selectedTrack.trackType === 'drum') return;
+    const existingEvent = getEventAtStep(selectedPattern, step);
+    const isSameNote = existingEvent?.kind === 'note' && existingEvent.pitch === pitch;
 
-    const currentEvent = getEventAtStep(selectedPattern, step);
-    let nextEvent: PatternEvent | null = null;
-
-    if (checked) {
-      if (selectedTrack.trackType === 'drum') {
-        const drumType = currentEvent && currentEvent.kind === 'drum' ? currentEvent.drumType : 'kick';
-        nextEvent = createDrumEvent(step, drumType);
-      } else {
-        const noteName = currentEvent && currentEvent.kind === 'note' ? midiToNoteName(currentEvent.pitch) : 'C5';
-        nextEvent = {
-          kind: 'note',
-          step,
-          length: 2,
-          pitch: noteNameToMidi(noteName),
-          velocity: 1,
-          gate: 0.9,
-        } satisfies NoteEvent;
+    updateSelectedPattern((pattern) => {
+      if (isSameNote) {
+        return upsertStepEvent(pattern, step, null);
       }
-    }
-
-    updateProject((draft) => {
-      const editablePatternId = ensureEditablePatternId(draft, selectedTrackId, selectedBar) ?? selectedPattern.id;
-      draft.patterns = draft.patterns.map((pattern: Pattern) =>
-        pattern.id === editablePatternId ? upsertStepEvent(pattern, step, nextEvent) : pattern,
-      );
-      return draft;
+      const nextEvent: NoteEvent = {
+        kind: 'note',
+        step,
+        length: existingEvent?.kind === 'note' ? existingEvent.length : insertLength,
+        pitch,
+        velocity: 1,
+        gate: 0.9,
+      };
+      return upsertStepEvent(pattern, step, nextEvent);
     });
+
+    setSelectedEventStep(isSameNote ? null : step);
+    setStatus(isSameNote ? `bar ${selectedBar + 1} の音を削除しました` : `${midiToNoteName(pitch)} を bar ${selectedBar + 1} に配置しました`);
   };
 
-  const updateNoteField = (step: number, field: 'pitch' | 'length' | 'drumType', value: string | number) => {
-    if (!selectedPattern) return;
-    const event = getEventAtStep(selectedPattern, step);
-    if (!event) return;
+  const setDrumAt = (step: number, drumType: DrumType) => {
+    if (!selectedPattern || !selectedTrack || selectedTrack.trackType !== 'drum') return;
+    const existingEvent = getEventAtStep(selectedPattern, step);
+    const isSameDrum = existingEvent?.kind === 'drum' && existingEvent.drumType === drumType;
 
-    let nextEvent: PatternEvent = event;
+    updateSelectedPattern((pattern) => upsertStepEvent(pattern, step, isSameDrum ? null : createDrumEvent(step, drumType)));
+    setSelectedEventStep(isSameDrum ? null : step);
+    setStatus(isSameDrum ? `bar ${selectedBar + 1} の ${drumType} を削除しました` : `${drumType} を bar ${selectedBar + 1} に配置しました`);
+  };
 
-    if (event.kind === 'note') {
-      nextEvent = {
-        ...event,
-        pitch: field === 'pitch' && typeof value === 'string' ? noteNameToMidi(value) : event.pitch,
-        length: field === 'length' && typeof value === 'number' ? value : event.length,
-      };
-    }
+  const updateSelectedNoteLength = (length: number) => {
+    if (!selectedEvent || selectedEvent.kind !== 'note') return;
+    updateSelectedPattern((pattern) =>
+      upsertStepEvent(pattern, selectedEvent.step, {
+        ...selectedEvent,
+        length,
+      }),
+    );
+    setInsertLength(length);
+    setStatus(`選択中の音の長さを ${length} step にしました`);
+  };
 
-    if (event.kind === 'drum') {
-      nextEvent = {
-        ...event,
-        drumType: field === 'drumType' && typeof value === 'string' ? (value as 'kick' | 'snare' | 'hat') : event.drumType,
-      };
-    }
-
-    updateProject((draft) => {
-      const editablePatternId = ensureEditablePatternId(draft, selectedTrackId, selectedBar) ?? selectedPattern.id;
-      draft.patterns = draft.patterns.map((pattern: Pattern) =>
-        pattern.id === editablePatternId ? upsertStepEvent(pattern, step, nextEvent) : pattern,
-      );
-      return draft;
-    });
+  const deleteSelectedEvent = () => {
+    if (!selectedEvent) return;
+    updateSelectedPattern((pattern) => upsertStepEvent(pattern, selectedEvent.step, null));
+    setSelectedEventStep(null);
+    setStatus('選択中の音を削除しました');
   };
 
   const copyCurrentPattern = () => {
     if (!selectedPattern || !selectedTrack) return;
     setClipboardPattern(JSON.parse(JSON.stringify(selectedPattern)) as Pattern);
     setClipboardMeta({ barIndex: selectedBar, trackName: selectedTrack.name });
-    setStatus(`Bar ${selectedBar + 1} / ${selectedTrack.name} をコピーしました。貼り付けたい Bar を選んで Paste を押してください。`);
+    setStatus(`Copy: ${selectedTrack.name} / bar ${selectedBar + 1}`);
   };
 
   const pastePatternToCurrentBar = () => {
-    if (!clipboardPattern) return;
+    if (!clipboardPattern || !selectedTrack) return;
     const newId = `p${Date.now()}`;
     const newPattern: Pattern = {
       ...(JSON.parse(JSON.stringify(clipboardPattern)) as Pattern),
       id: newId,
       trackId: selectedTrackId,
-      name: `${clipboardPattern.name} Paste`,
+      name: `${clipboardPattern.name} paste`,
     };
 
     updateProject((draft) => {
@@ -211,7 +234,8 @@ export default function ComposerApp() {
       draft.arrangement[selectedBar].patternIdByTrack[selectedTrackId] = newId;
       return draft;
     });
-    setStatus(`Clipboard の内容を Bar ${selectedBar + 1} / ${selectedTrack?.name ?? ''} に貼り付けました`);
+    setSelectedEventStep(null);
+    setStatus(`Paste: ${selectedTrack.name} / bar ${selectedBar + 1}`);
   };
 
   const saveProjectFile = () => {
@@ -226,6 +250,7 @@ export default function ComposerApp() {
     setProject(data);
     setSelectedTrackId(data.tracks[0]?.id ?? 't1');
     setSelectedBar(0);
+    setSelectedEventStep(null);
     setStatus('プロジェクトを読み込みました');
   };
 
@@ -242,7 +267,7 @@ export default function ComposerApp() {
 
   const applyTrackPatch = (trackId: string, patch: Partial<Track>) => {
     updateProject((draft) => {
-      draft.tracks = draft.tracks.map((track: Track) => (track.id === trackId ? { ...track, ...patch } : track));
+      draft.tracks = draft.tracks.map((track) => (track.id === trackId ? { ...track, ...patch } : track));
       return draft;
     });
   };
@@ -270,7 +295,7 @@ export default function ComposerApp() {
               <div className="field compact">
                 <label>キー</label>
                 <select value={project.keyRoot} onChange={(e) => updateProject((draft) => ({ ...draft, keyRoot: e.target.value }))}>
-                  {['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'].map((key: string) => (
+                  {KEY_OPTIONS.map((key) => (
                     <option key={key} value={key}>
                       {key}
                     </option>
@@ -317,7 +342,7 @@ export default function ComposerApp() {
                     </select>
                   </div>
                   <div className="field slim">
-                    <label>Start Bar</label>
+                    <label>Start bar</label>
                     <input
                       type="number"
                       min={0}
@@ -332,7 +357,7 @@ export default function ComposerApp() {
                     />
                   </div>
                   <div className="field slim">
-                    <label>End Bar</label>
+                    <label>End bar</label>
                     <input
                       type="number"
                       min={project.loopSettings.startBar}
@@ -417,25 +442,25 @@ export default function ComposerApp() {
       </section>
 
       <section className="panel section-panel arrangement-panel">
-        <div className="section-header">
+        <div className="section-header compact-section-header">
           <div>
             <h2>Arrangement</h2>
           </div>
         </div>
         <div className="arrangement-grid">
           {project.arrangement.map((bar) => {
-            const patternId = bar.patternIdByTrack[selectedTrackId];
+            const pattern = getPattern(project, selectedTrackId, bar.barIndex);
             const isCopied = clipboardMeta?.barIndex === bar.barIndex && clipboardMeta?.trackName === selectedTrack?.name;
             return (
               <button
                 key={bar.barIndex}
                 className={`arrangement-cell ${selectedBar === bar.barIndex ? 'selected' : ''}`}
                 onClick={() => setSelectedBar(bar.barIndex)}
-                title={`Bar ${bar.barIndex + 1}`}
+                title={`bar ${bar.barIndex + 1}`}
               >
-                <strong>Bar {bar.barIndex + 1}</strong>
-                <span className="arrangement-meta">{patternId ?? 'empty'}</span>
-                {isCopied && <span className="arrangement-flag">Copied</span>}
+                <strong>bar {bar.barIndex + 1}</strong>
+                <span className="arrangement-meta">{pattern?.events.length ?? 0} events</span>
+                {isCopied && <span className="arrangement-flag">copied</span>}
               </button>
             );
           })}
@@ -443,14 +468,14 @@ export default function ComposerApp() {
       </section>
 
       <section className="panel section-panel track-panel">
-        <div className="section-header">
+        <div className="section-header compact-section-header">
           <div>
             <h2>トラック</h2>
           </div>
         </div>
 
         <div className="track-list">
-          {project.tracks.map((track: Track) => (
+          {project.tracks.map((track) => (
             <div key={track.id} className={`track-row ${selectedTrackId === track.id ? 'active' : ''}`}>
               <button className="track-select" onClick={() => setSelectedTrackId(track.id)}>
                 <span>{track.name}</span>
@@ -490,88 +515,170 @@ export default function ComposerApp() {
       <section className="panel section-panel editor-panel">
         <div className="section-header editor-header">
           <div>
-            <h2>パターン編集</h2>
-            <p className="small">Bar {selectedBar + 1} / {selectedTrack?.name}{clipboardMeta ? ` / Clipboard: Bar ${clipboardMeta.barIndex + 1}` : ""}</p>
+            <h2>Pattern Editor</h2>
+            <p className="small">
+              bar {selectedBar + 1} / {selectedTrack?.name}
+              {clipboardMeta ? ` / clipboard: ${clipboardMeta.trackName} bar ${clipboardMeta.barIndex + 1}` : ''}
+            </p>
           </div>
           <div className="button-row compact-actions">
             <button onClick={copyCurrentPattern}>Copy</button>
             <button onClick={pastePatternToCurrentBar} disabled={!clipboardPattern}>
-              Paste to Bar {selectedBar + 1}
+              Paste into bar {selectedBar + 1}
             </button>
           </div>
         </div>
 
-        <div className="pattern-grid">
-          <div className="step-grid">
-            {Array.from({ length: 16 }, (_, step) => {
-              const event = getEventAtStep(selectedPattern, step);
-              return (
-                <div key={step} className={`step-cell ${playingStep === step ? 'playing' : ''}`}>
-                  <div className="step-header">
-                    <strong>S{step + 1}</strong>
-                    <input
-                      className="checkbox"
-                      type="checkbox"
-                      checked={Boolean(event)}
-                      onChange={(e) => onStepToggle(step, e.target.checked)}
-                    />
-                  </div>
-                  {!event && <div className="small compact-empty">-</div>}
-                  {event?.kind === 'note' && (
-                    <>
-                      <div className="field compact-field">
-                        <label>Note</label>
-                        <select value={midiToNoteName(event.pitch)} onChange={(e) => updateNoteField(step, 'pitch', e.target.value)}>
-                          {NOTE_OPTIONS.map((note: string) => (
-                            <option key={note} value={note}>
-                              {note}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="field compact-field">
-                        <label>Len</label>
-                        <select value={event.length} onChange={(e) => updateNoteField(step, 'length', Number(e.target.value))}>
-                          {[1, 2, 3, 4].map((value) => (
-                            <option key={value} value={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </>
-                  )}
-                  {event?.kind === 'drum' && (
-                    <div className="field compact-field">
-                      <label>Drum</label>
-                      <select value={event.drumType} onChange={(e) => updateNoteField(step, 'drumType', e.target.value)}>
-                        {['kick', 'snare', 'hat'].map((drum: string) => (
-                          <option key={drum} value={drum}>
-                            {drum}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+        <div className="editor-toolbar">
+          {selectedTrack?.trackType !== 'drum' && (
+            <div className="chip-group">
+              <span className="toolbar-label">入力長</span>
+              {LENGTH_OPTIONS.map((length) => (
+                <button
+                  key={length}
+                  className={`chip ${insertLength === length ? 'active' : ''}`}
+                  onClick={() => setInsertLength(length)}
+                >
+                  {length}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="editor-selection-box">
+            {!selectedEvent && <span className="small">空セルをタップすると配置、同じ位置をもう一度タップすると削除。</span>}
+            {selectedEvent?.kind === 'note' && (
+              <>
+                <span className="selection-text">選択中: {midiToNoteName(selectedEvent.pitch)} / {selectedEvent.length} step</span>
+                <div className="chip-group compact-chip-group">
+                  {LENGTH_OPTIONS.map((length) => (
+                    <button
+                      key={length}
+                      className={`chip ${selectedEvent.length === length ? 'active' : ''}`}
+                      onClick={() => updateSelectedNoteLength(length)}
+                    >
+                      len {length}
+                    </button>
+                  ))}
+                  <button className="chip danger" onClick={deleteSelectedEvent}>
+                    delete
+                  </button>
                 </div>
-              );
-            })}
+              </>
+            )}
+            {selectedEvent?.kind === 'drum' && (
+              <>
+                <span className="selection-text">選択中: {selectedEvent.drumType}</span>
+                <button className="chip danger" onClick={deleteSelectedEvent}>
+                  delete
+                </button>
+              </>
+            )}
           </div>
         </div>
+
+        {selectedTrack?.trackType === 'drum' ? (
+          <div className="drum-board-wrap">
+            <div className="drum-board">
+              <div className="step-number-row">
+                <div className="lane-label lane-label-header">lane</div>
+                {Array.from({ length: 16 }, (_, step) => (
+                  <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''}`}>
+                    {step + 1}
+                  </div>
+                ))}
+              </div>
+              {DRUM_ROWS.map((drumType) => (
+                <div key={drumType} className="drum-row">
+                  <div className="lane-label">{drumType}</div>
+                  {Array.from({ length: 16 }, (_, step) => {
+                    const event = getEventAtStep(selectedPattern, step);
+                    const active = event?.kind === 'drum' && event.drumType === drumType;
+                    return (
+                      <button
+                        key={`${drumType}-${step}`}
+                        className={`drum-cell ${active ? 'active' : ''} ${playingStep === step ? 'playing' : ''}`}
+                        onClick={() => setDrumAt(step, drumType)}
+                        title={`${drumType} / step ${step + 1}`}
+                      >
+                        <span className="drum-dot" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="staff-wrap">
+            <div className="staff-board">
+              <div className="step-number-row">
+                <div className="lane-label lane-label-header">pitch</div>
+                {Array.from({ length: 16 }, (_, step) => (
+                  <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''}`}>
+                    {step + 1}
+                  </div>
+                ))}
+              </div>
+              {NOTE_ROWS.map((row) => {
+                const noteName = midiToNoteName(row.midi);
+                const isStaffLine = STAFF_LINE_CLASSES.has(row.midi % 12);
+                const isNatural = !noteName.includes('#') && !noteName.includes('b');
+                return (
+                  <div key={row.midi} className={`staff-row ${isStaffLine ? 'staff-line' : ''} ${isNatural ? 'natural-row' : 'accidental-row'}`}>
+                    <div className="lane-label">{noteName}</div>
+                    {Array.from({ length: 16 }, (_, step) => {
+                      const startEvent = getEventAtStep(selectedPattern, step);
+                      const covering = getCoveringNoteAt(selectedPattern, row.midi, step);
+                      const isStart = startEvent?.kind === 'note' && startEvent.pitch === row.midi;
+                      const isHold = Boolean(covering) && !isStart;
+                      const isSelected = selectedEvent?.kind === 'note' && Boolean(covering) && covering.step === selectedEvent.step && covering.pitch === row.midi;
+                      return (
+                        <button
+                          key={`${row.midi}-${step}`}
+                          className={`note-cell ${isStart ? 'note-start' : ''} ${isHold ? 'note-hold' : ''} ${isSelected ? 'selected' : ''} ${playingStep === step ? 'playing' : ''}`}
+                          onClick={() => {
+                            if (covering) {
+                              const isSelectedStart =
+                                selectedEvent?.kind === 'note' &&
+                                selectedEvent.step === covering.step &&
+                                selectedEvent.pitch === covering.pitch &&
+                                covering.step === step;
+                              setSelectedEventStep(covering.step);
+                              if (isSelectedStart) {
+                                setNoteAt(step, row.midi);
+                              }
+                              return;
+                            }
+                            setNoteAt(step, row.midi);
+                          }}
+                          title={`${noteName} / step ${step + 1}`}
+                        >
+                          {isStart && <span className="note-head" />}
+                          {isHold && <span className="note-tail" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel section-panel help-panel">
-        <div className="section-header">
+        <div className="section-header compact-section-header">
           <div>
             <h2>使い方</h2>
           </div>
         </div>
-        <div className="help-copy">
-          <p className="small">ArrangementでBarを選び、Trackを選んでStepを打ち込みます。</p>
-          <p className="small">Copyで現在の Bar を保持し、貼り付けたい Bar を選んで Paste を押します。編集中の Bar が他と共有中なら、その Bar だけ自動で分離して編集します。</p>
-          <p className="small">LoopのStart Bar / End Barを決めて再生すると、その範囲を繰り返し確認できます。</p>
+        <div className="help-copy compact-help-copy">
+          <p className="small">Arrangementで bar を選び、トラックを選んでグリッドを直接タップします。</p>
+          <p className="small">Copy は選択中のトラックと bar を保持し、Paste は今選んでいる bar に貼り付けます。</p>
         </div>
       </section>
+
       <input
         ref={fileInputRef}
         type="file"
