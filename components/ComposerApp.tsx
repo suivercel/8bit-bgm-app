@@ -37,6 +37,7 @@ export default function ComposerApp() {
   const [playingStep, setPlayingStep] = useState<number | null>(null);
   const [status, setStatus] = useState<string>('準備完了');
   const [loopCheckMode, setLoopCheckMode] = useState(false);
+  const [clipboardPattern, setClipboardPattern] = useState<Pattern | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -160,13 +161,20 @@ export default function ComposerApp() {
     });
   };
 
-  const duplicateCurrentPattern = () => {
+  const copyCurrentPattern = () => {
     if (!selectedPattern) return;
+    setClipboardPattern(JSON.parse(JSON.stringify(selectedPattern)) as Pattern);
+    setStatus(`Bar ${selectedBar + 1} / ${selectedTrack?.name} のパターンをコピーしました`);
+  };
+
+  const pastePatternToCurrentBar = () => {
+    if (!clipboardPattern) return;
     const newId = `p${Date.now()}`;
     const newPattern: Pattern = {
-      ...(JSON.parse(JSON.stringify(selectedPattern)) as Pattern),
+      ...(JSON.parse(JSON.stringify(clipboardPattern)) as Pattern),
       id: newId,
-      name: `${selectedPattern.name} Copy`,
+      trackId: selectedTrackId,
+      name: `${clipboardPattern.name} Paste`,
     };
 
     updateProject((draft) => {
@@ -174,7 +182,7 @@ export default function ComposerApp() {
       draft.arrangement[selectedBar].patternIdByTrack[selectedTrackId] = newId;
       return draft;
     });
-    setStatus('選択パターンを複製しました');
+    setStatus(`コピーしたパターンを Bar ${selectedBar + 1} に貼り付けました`);
   };
 
   const saveProjectFile = () => {
@@ -212,301 +220,307 @@ export default function ComposerApp() {
 
   return (
     <main className="page shell-bg">
-
       <section className="panel topbar-panel">
-        <div className="topbar-grid">
-          <div className="field wide">
-            <label>曲名</label>
-            <input value={project.title} onChange={(e) => updateProject((draft) => ({ ...draft, title: e.target.value }))} />
-          </div>
-          <div className="field compact">
-            <label>BPM</label>
-            <input
-              type="number"
-              min={60}
-              max={220}
-              value={project.bpm}
-              onChange={(e) => updateProject((draft) => ({ ...draft, bpm: Number(e.target.value) }))}
-            />
-          </div>
-          <div className="field compact">
-            <label>キー</label>
-            <select value={project.keyRoot} onChange={(e) => updateProject((draft) => ({ ...draft, keyRoot: e.target.value }))}>
-              {['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'].map((key: string) => (
-                <option key={key} value={key}>
-                  {key}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field compact">
-            <label>スケール</label>
-            <select value={project.scale} onChange={(e) => updateProject((draft) => ({ ...draft, scale: e.target.value as MusicProject['scale'] }))}>
-              <option value="major">major</option>
-              <option value="minor">minor</option>
-            </select>
-          </div>
-        </div>
-        <div className="button-row toolbar-actions">
-          <button onClick={() => setProject(createDefaultProject())}>新規</button>
-          <button className="primary" onClick={() => startPlayback(false)}>
-            再生
-          </button>
-          <button onClick={stopPlayback}>停止</button>
-          <button onClick={saveProjectFile}>保存</button>
-          <button onClick={() => fileInputRef.current?.click()}>読込</button>
-        </div>
-      </section>
-
-      <div className="app-grid">
-        <section className="panel section-panel">
-          <div className="section-header">
-            <div>
-              <h2>トラック</h2>
+        <div className="topbar-layout">
+          <div className="topbar-main">
+            <div className="topbar-grid">
+              <div className="field wide">
+                <label>曲名</label>
+                <input value={project.title} onChange={(e) => updateProject((draft) => ({ ...draft, title: e.target.value }))} />
+              </div>
+              <div className="field compact">
+                <label>BPM</label>
+                <input
+                  type="number"
+                  min={60}
+                  max={220}
+                  value={project.bpm}
+                  onChange={(e) => updateProject((draft) => ({ ...draft, bpm: Number(e.target.value) }))}
+                />
+              </div>
+              <div className="field compact">
+                <label>キー</label>
+                <select value={project.keyRoot} onChange={(e) => updateProject((draft) => ({ ...draft, keyRoot: e.target.value }))}>
+                  {['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'].map((key: string) => (
+                    <option key={key} value={key}>
+                      {key}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field compact">
+                <label>スケール</label>
+                <select value={project.scale} onChange={(e) => updateProject((draft) => ({ ...draft, scale: e.target.value as MusicProject['scale'] }))}>
+                  <option value="major">major</option>
+                  <option value="minor">minor</option>
+                </select>
+              </div>
+            </div>
+            <div className="button-row toolbar-actions">
+              <button onClick={() => setProject(createDefaultProject())}>新規</button>
+              <button className="primary" onClick={() => startPlayback(false)}>
+                再生
+              </button>
+              <button onClick={stopPlayback}>停止</button>
+              <button onClick={saveProjectFile}>保存</button>
+              <button onClick={() => fileInputRef.current?.click()}>読込</button>
             </div>
           </div>
 
-          <div className="track-list">
-            {project.tracks.map((track: Track) => (
-              <div key={track.id} className={`track-row ${selectedTrackId === track.id ? 'active' : ''}`}>
-                <button className="track-select" onClick={() => setSelectedTrackId(track.id)}>
-                  <span>{track.name}</span>
-                  <span className="track-badge">{track.trackType}</span>
-                </button>
-                <div className="field slim">
-                  <label>Volume</label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={track.volume}
-                    onChange={(e) => applyTrackPatch(track.id, { volume: Number(e.target.value) })}
-                  />
+          <div className="topbar-side">
+            <div className="topbar-side-grid">
+              <div className="mini-panel">
+                <div className="mini-panel-title">Loop</div>
+                <div className="mini-grid three">
+                  <div className="field slim">
+                    <label>状態</label>
+                    <select
+                      value={project.loopSettings.enabled ? 'on' : 'off'}
+                      onChange={(e) =>
+                        updateProject((draft) => ({
+                          ...draft,
+                          loopSettings: { ...draft.loopSettings, enabled: e.target.value === 'on' },
+                        }))
+                      }
+                    >
+                      <option value="on">ON</option>
+                      <option value="off">OFF</option>
+                    </select>
+                  </div>
+                  <div className="field slim">
+                    <label>Start Bar</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={project.totalBars - 1}
+                      value={project.loopSettings.startBar}
+                      onChange={(e) =>
+                        updateProject((draft) => ({
+                          ...draft,
+                          loopSettings: { ...draft.loopSettings, startBar: Number(e.target.value) },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field slim">
+                    <label>End Bar</label>
+                    <input
+                      type="number"
+                      min={project.loopSettings.startBar}
+                      max={project.totalBars - 1}
+                      value={project.loopSettings.endBar}
+                      onChange={(e) =>
+                        updateProject((draft) => ({
+                          ...draft,
+                          loopSettings: { ...draft.loopSettings, endBar: Number(e.target.value) },
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
-                <div className="field slim">
-                  <label>Pan</label>
-                  <input
-                    type="range"
-                    min={-1}
-                    max={1}
-                    step={0.01}
-                    value={track.pan}
-                    onChange={(e) => applyTrackPatch(track.id, { pan: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="track-actions">
-                  <button onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'ミュート解除' : 'ミュート'}</button>
-                  <button onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'ソロ解除' : 'ソロ'}</button>
+                <div className="button-row">
+                  <button onClick={() => setLoopCheckMode((prev) => !prev)}>{loopCheckMode ? '重点確認 OFF' : '重点確認 ON'}</button>
+                  <button className="primary" onClick={() => startPlayback(loopCheckMode)}>
+                    {loopCheckMode ? '重点確認を再生' : '範囲再生'}
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
 
-        <section className="panel section-panel editor-panel">
-          <div className="section-header">
-            <div>
-              <h2>パターン編集</h2>
-              <p className="small">
-                選択中: 小節 {selectedBar + 1} / {selectedTrack?.name}
-              </p>
-            </div>
-            <div className="button-row compact-actions">
-              <button onClick={duplicateCurrentPattern}>パターン複製</button>
-              <button onClick={() => setLoopCheckMode((prev) => !prev)}>{loopCheckMode ? 'ループ重点確認 OFF' : 'ループ重点確認 ON'}</button>
-            </div>
-          </div>
-
-          <div className="pattern-grid">
-            <div className="step-grid">
-              {Array.from({ length: 16 }, (_, step) => {
-                const event = getEventAtStep(selectedPattern, step);
-                return (
-                  <div key={step} className={`step-cell ${playingStep === step ? 'playing' : ''}`}>
-                    <div className="step-header">
-                      <strong>Step {step + 1}</strong>
-                      <input
-                        className="checkbox"
-                        type="checkbox"
-                        checked={Boolean(event)}
-                        onChange={(e) => onStepToggle(step, e.target.checked)}
-                      />
-                    </div>
-                    {!event && <div className="small">空き</div>}
-                    {event?.kind === 'note' && (
-                      <>
-                        <div className="field">
-                          <label>Note</label>
-                          <select value={midiToNoteName(event.pitch)} onChange={(e) => updateNoteField(step, 'pitch', e.target.value)}>
-                            {NOTE_OPTIONS.map((note: string) => (
-                              <option key={note} value={note}>
-                                {note}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="field">
-                          <label>Length</label>
-                          <select value={event.length} onChange={(e) => updateNoteField(step, 'length', Number(e.target.value))}>
-                            {[1, 2, 3, 4].map((value) => (
-                              <option key={value} value={value}>
-                                {value}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </>
-                    )}
-                    {event?.kind === 'drum' && (
-                      <div className="field">
-                        <label>Drum</label>
-                        <select value={event.drumType} onChange={(e) => updateNoteField(step, 'drumType', e.target.value)}>
-                          {['kick', 'snare', 'hat'].map((drum: string) => (
-                            <option key={drum} value={drum}>
-                              {drum}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+              <div className="mini-panel">
+                <div className="mini-panel-title">Export</div>
+                <div className="mini-grid three">
+                  <div className="field slim">
+                    <label>Format</label>
+                    <select
+                      value={project.exportSettings.format}
+                      onChange={(e) =>
+                        updateProject((draft) => ({
+                          ...draft,
+                          exportSettings: { ...draft.exportSettings, format: e.target.value as 'wav' | 'mp3' },
+                        }))
+                      }
+                    >
+                      <option value="wav">WAV</option>
+                      <option value="mp3">MP3</option>
+                    </select>
                   </div>
-                );
-              })}
+                  <div className="field slim">
+                    <label>Sample Rate</label>
+                    <select
+                      value={project.exportSettings.sampleRate}
+                      onChange={(e) =>
+                        updateProject((draft) => ({
+                          ...draft,
+                          exportSettings: { ...draft.exportSettings, sampleRate: Number(e.target.value) as 44100 | 48000 },
+                        }))
+                      }
+                    >
+                      <option value={44100}>44.1kHz</option>
+                      <option value={48000}>48kHz</option>
+                    </select>
+                  </div>
+                  <div className="field slim">
+                    <label>Bit Depth</label>
+                    <select
+                      value={project.exportSettings.bitDepth}
+                      onChange={(e) =>
+                        updateProject((draft) => ({
+                          ...draft,
+                          exportSettings: { ...draft.exportSettings, bitDepth: Number(e.target.value) as 16 | 24 },
+                        }))
+                      }
+                    >
+                      <option value={16}>16bit</option>
+                      <option value={24}>24bit</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="button-row">
+                  <button className="primary" onClick={handleExport}>
+                    書き出し
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </section>
-
-        <section className="panel section-panel side-panel">
-          <div className="section-header">
-            <div>
-              <h2>ループ / 書き出し</h2>
-            </div>
-          </div>
-
-          <div className="field">
-            <label>ループ</label>
-            <select
-              value={project.loopSettings.enabled ? 'on' : 'off'}
-              onChange={(e) =>
-                updateProject((draft) => ({
-                  ...draft,
-                  loopSettings: { ...draft.loopSettings, enabled: e.target.value === 'on' },
-                }))
-              }
-            >
-              <option value="on">ON</option>
-              <option value="off">OFF</option>
-            </select>
-          </div>
-          <div className="loop-range-grid">
-            <div className="field">
-              <label>開始小節</label>
-              <input
-                type="number"
-                min={0}
-                max={project.totalBars - 1}
-                value={project.loopSettings.startBar}
-                onChange={(e) =>
-                  updateProject((draft) => ({
-                    ...draft,
-                    loopSettings: { ...draft.loopSettings, startBar: Number(e.target.value) },
-                  }))
-                }
-              />
-            </div>
-            <div className="field">
-              <label>終了小節</label>
-              <input
-                type="number"
-                min={project.loopSettings.startBar}
-                max={project.totalBars - 1}
-                value={project.loopSettings.endBar}
-                onChange={(e) =>
-                  updateProject((draft) => ({
-                    ...draft,
-                    loopSettings: { ...draft.loopSettings, endBar: Number(e.target.value) },
-                  }))
-                }
-              />
-            </div>
-          </div>
-          <div className="button-row stretch-row">
-            <button className="primary" onClick={() => startPlayback(loopCheckMode)}>
-              {loopCheckMode ? 'ループ重点確認を再生' : '通常再生'}
-            </button>
-          </div>
-
-          <div className="divider" />
-
-          <div className="field">
-            <label>Format</label>
-            <select
-              value={project.exportSettings.format}
-              onChange={(e) =>
-                updateProject((draft) => ({
-                  ...draft,
-                  exportSettings: { ...draft.exportSettings, format: e.target.value as 'wav' | 'mp3' },
-                }))
-              }
-            >
-              <option value="wav">WAV</option>
-              <option value="mp3">MP3 (未実装)</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Sample Rate</label>
-            <select
-              value={project.exportSettings.sampleRate}
-              onChange={(e) =>
-                updateProject((draft) => ({
-                  ...draft,
-                  exportSettings: { ...draft.exportSettings, sampleRate: Number(e.target.value) as 44100 | 48000 },
-                }))
-              }
-            >
-              <option value={44100}>44.1kHz</option>
-              <option value={48000}>48kHz</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Bit Depth</label>
-            <select
-              value={project.exportSettings.bitDepth}
-              onChange={(e) =>
-                updateProject((draft) => ({
-                  ...draft,
-                  exportSettings: { ...draft.exportSettings, bitDepth: Number(e.target.value) as 16 | 24 },
-                }))
-              }
-            >
-              <option value={16}>16bit PCM</option>
-              <option value={24}>24bit PCM</option>
-            </select>
-          </div>
-          <div className="button-row stretch-row">
-            <button className="primary" onClick={handleExport}>
-              書き出し
-            </button>
-          </div>
-          <div className="status-box">{status}</div>
-        </section>
-      </div>
+        </div>
+        <div className="status-box topbar-status">{status}</div>
+      </section>
 
       <section className="panel section-panel arrangement-panel">
         <div className="section-header">
           <div>
-            <h2>曲順</h2>
+            <h2>Arrangement</h2>
           </div>
         </div>
         <div className="arrangement-grid">
           {project.arrangement.map((bar) => (
-            <div key={bar.barIndex} className={`arrangement-cell ${selectedBar === bar.barIndex ? 'selected' : ''}`}>
+            <button
+              key={bar.barIndex}
+              className={`arrangement-cell ${selectedBar === bar.barIndex ? 'selected' : ''}`}
+              onClick={() => setSelectedBar(bar.barIndex)}
+            >
               <strong>Bar {bar.barIndex + 1}</strong>
-              <div className="small arrangement-copy">編集対象</div>
-              <button onClick={() => setSelectedBar(bar.barIndex)}>{selectedBar === bar.barIndex ? '選択中' : '選択する'}</button>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel section-panel track-panel">
+        <div className="section-header">
+          <div>
+            <h2>トラック</h2>
+          </div>
+        </div>
+
+        <div className="track-list">
+          {project.tracks.map((track: Track) => (
+            <div key={track.id} className={`track-row ${selectedTrackId === track.id ? 'active' : ''}`}>
+              <button className="track-select" onClick={() => setSelectedTrackId(track.id)}>
+                <span>{track.name}</span>
+                <span className="track-badge">{track.trackType}</span>
+              </button>
+              <div className="field slim">
+                <label>Volume</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={track.volume}
+                  onChange={(e) => applyTrackPatch(track.id, { volume: Number(e.target.value) })}
+                />
+              </div>
+              <div className="field slim">
+                <label>Pan</label>
+                <input
+                  type="range"
+                  min={-1}
+                  max={1}
+                  step={0.01}
+                  value={track.pan}
+                  onChange={(e) => applyTrackPatch(track.id, { pan: Number(e.target.value) })}
+                />
+              </div>
+              <div className="track-actions">
+                <button onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'ミュート解除' : 'ミュート'}</button>
+                <button onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'ソロ解除' : 'ソロ'}</button>
+              </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="panel section-panel editor-panel">
+        <div className="section-header editor-header">
+          <div>
+            <h2>パターン編集</h2>
+            <p className="small">Bar {selectedBar + 1} / {selectedTrack?.name}</p>
+          </div>
+          <div className="button-row compact-actions">
+            <button onClick={copyCurrentPattern}>Copy</button>
+            <button onClick={pastePatternToCurrentBar} disabled={!clipboardPattern}>
+              Paste to Bar {selectedBar + 1}
+            </button>
+          </div>
+        </div>
+
+        <div className="pattern-grid">
+          <div className="step-grid">
+            {Array.from({ length: 16 }, (_, step) => {
+              const event = getEventAtStep(selectedPattern, step);
+              return (
+                <div key={step} className={`step-cell ${playingStep === step ? 'playing' : ''}`}>
+                  <div className="step-header">
+                    <strong>S{step + 1}</strong>
+                    <input
+                      className="checkbox"
+                      type="checkbox"
+                      checked={Boolean(event)}
+                      onChange={(e) => onStepToggle(step, e.target.checked)}
+                    />
+                  </div>
+                  {!event && <div className="small compact-empty">-</div>}
+                  {event?.kind === 'note' && (
+                    <>
+                      <div className="field compact-field">
+                        <label>Note</label>
+                        <select value={midiToNoteName(event.pitch)} onChange={(e) => updateNoteField(step, 'pitch', e.target.value)}>
+                          {NOTE_OPTIONS.map((note: string) => (
+                            <option key={note} value={note}>
+                              {note}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="field compact-field">
+                        <label>Len</label>
+                        <select value={event.length} onChange={(e) => updateNoteField(step, 'length', Number(e.target.value))}>
+                          {[1, 2, 3, 4].map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
+                  {event?.kind === 'drum' && (
+                    <div className="field compact-field">
+                      <label>Drum</label>
+                      <select value={event.drumType} onChange={(e) => updateNoteField(step, 'drumType', e.target.value)}>
+                        {['kick', 'snare', 'hat'].map((drum: string) => (
+                          <option key={drum} value={drum}>
+                            {drum}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -517,12 +531,11 @@ export default function ComposerApp() {
           </div>
         </div>
         <div className="help-copy">
-          <p className="small">曲名、BPM、キーを決めてトラックを選び、各ステップをオンにして音を置きます。</p>
-          <p className="small">小節を切り替えながらパターンを作り、必要に応じて複製して曲順を組みます。</p>
-          <p className="small">保存は <span className="kbd">.eightbit.json</span> のプロジェクトファイルです。完成したらWAVで書き出します。</p>
+          <p className="small">ArrangementでBarを選び、Trackを選んでStepを打ち込みます。</p>
+          <p className="small">Copyで現在のパターンを保持し、貼り付けたいBarを選んでPasteを押します。</p>
+          <p className="small">LoopのStart Bar / End Barを決めて再生すると、その範囲を繰り返し確認できます。</p>
         </div>
       </section>
-
       <input
         ref={fileInputRef}
         type="file"
