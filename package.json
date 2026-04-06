@@ -1,5 +1,5 @@
 {
-  "name": "8bit-bgm-app-v001",
+  "name": "8bit-bgm-app-v002",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -16,7 +16,7 @@
   "devDependencies": {
     "@types/node": "22.15.17",
     "@types/react": "19.0.14",
-    "@types/react-dom": "19.0.7",
+    "@types/react-dom": "19.0.0",
     "typescript": "5.8.3"
   }
 }
