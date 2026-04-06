@@ -50,11 +50,10 @@ export default function ComposerApp() {
   const [selectedTrackId, setSelectedTrackId] = useState<string>('t1');
   const [selectedBar, setSelectedBar] = useState<number>(0);
   const [playingStep, setPlayingStep] = useState<number | null>(null);
-  const [status, setStatus] = useState<string>('準備完了');
+  const [status, setStatus] = useState<string>('Ready');
   const [loopCheckMode, setLoopCheckMode] = useState(false);
   const [clipboardPattern, setClipboardPattern] = useState<Pattern | null>(null);
   const [clipboardMeta, setClipboardMeta] = useState<{ barIndex: number; trackName: string } | null>(null);
-  const [insertLength, setInsertLength] = useState<number>(2);
   const [selectedEventStep, setSelectedEventStep] = useState<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
@@ -171,7 +170,7 @@ export default function ComposerApp() {
       const nextEvent: NoteEvent = {
         kind: 'note',
         step,
-        length: existingEvent?.kind === 'note' ? existingEvent.length : insertLength,
+        length: existingEvent?.kind === 'note' ? existingEvent.length : 2,
         pitch,
         velocity: 1,
         gate: 0.9,
@@ -180,7 +179,7 @@ export default function ComposerApp() {
     });
 
     setSelectedEventStep(isSameNote ? null : step);
-    setStatus(isSameNote ? `bar ${selectedBar + 1} の音を削除しました` : `${midiToNoteName(pitch)} を bar ${selectedBar + 1} に配置しました`);
+    setStatus(isSameNote ? `Removed note from bar ${selectedBar + 1}` : `Placed ${midiToNoteName(pitch)} in bar ${selectedBar + 1}`);
   };
 
   const setDrumAt = (step: number, drumType: DrumType) => {
@@ -190,7 +189,7 @@ export default function ComposerApp() {
 
     updateSelectedPattern((pattern) => upsertStepEvent(pattern, step, isSameDrum ? null : createDrumEvent(step, drumType)));
     setSelectedEventStep(isSameDrum ? null : step);
-    setStatus(isSameDrum ? `bar ${selectedBar + 1} の ${drumType} を削除しました` : `${drumType} を bar ${selectedBar + 1} に配置しました`);
+    setStatus(isSameDrum ? `Removed ${drumType} from bar ${selectedBar + 1}` : `Placed ${drumType} in bar ${selectedBar + 1}`);
   };
 
   const updateSelectedNoteLength = (length: number) => {
@@ -201,15 +200,14 @@ export default function ComposerApp() {
         length,
       }),
     );
-    setInsertLength(length);
-    setStatus(`選択中の音の長さを ${length} step にしました`);
+    setStatus(`Set selected note length to ${length} step`);
   };
 
   const deleteSelectedEvent = () => {
     if (!selectedEvent) return;
     updateSelectedPattern((pattern) => upsertStepEvent(pattern, selectedEvent.step, null));
     setSelectedEventStep(null);
-    setStatus('選択中の音を削除しました');
+    setStatus('Deleted selected event');
   };
 
   const copyCurrentPattern = () => {
@@ -241,7 +239,7 @@ export default function ComposerApp() {
   const saveProjectFile = () => {
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
     downloadBlob(blob, createProjectFileName(project.title));
-    setStatus('プロジェクトを保存しました');
+    setStatus('Project saved');
   };
 
   const loadProjectFile = async (file: File) => {
@@ -251,18 +249,18 @@ export default function ComposerApp() {
     setSelectedTrackId(data.tracks[0]?.id ?? 't1');
     setSelectedBar(0);
     setSelectedEventStep(null);
-    setStatus('プロジェクトを読み込みました');
+    setStatus('Project loaded');
   };
 
   const handleExport = async () => {
     if (project.exportSettings.format !== 'wav') {
-      setStatus('この版ではMP3未実装です。WAVを選んでください。');
+      setStatus('MP3 is not implemented in this version. Please select WAV.');
       return;
     }
-    setStatus('WAVを書き出し中');
+    setStatus('Exporting WAV');
     const blob = await exportWav(project);
     downloadBlob(blob, `${project.title || 'bgm'}.wav`);
-    setStatus('WAVを書き出しました');
+    setStatus('WAV exported');
   };
 
   const applyTrackPatch = (trackId: string, patch: Partial<Track>) => {
@@ -279,7 +277,7 @@ export default function ComposerApp() {
           <div className="topbar-main">
             <div className="topbar-grid">
               <div className="field wide">
-                <label>曲名</label>
+                <label>Title</label>
                 <input value={project.title} onChange={(e) => updateProject((draft) => ({ ...draft, title: e.target.value }))} />
               </div>
               <div className="field compact">
@@ -293,7 +291,7 @@ export default function ComposerApp() {
                 />
               </div>
               <div className="field compact">
-                <label>キー</label>
+                <label>Key</label>
                 <select value={project.keyRoot} onChange={(e) => updateProject((draft) => ({ ...draft, keyRoot: e.target.value }))}>
                   {KEY_OPTIONS.map((key) => (
                     <option key={key} value={key}>
@@ -303,7 +301,7 @@ export default function ComposerApp() {
                 </select>
               </div>
               <div className="field compact">
-                <label>スケール</label>
+                <label>Scale</label>
                 <select value={project.scale} onChange={(e) => updateProject((draft) => ({ ...draft, scale: e.target.value as MusicProject['scale'] }))}>
                   <option value="major">major</option>
                   <option value="minor">minor</option>
@@ -311,13 +309,13 @@ export default function ComposerApp() {
               </div>
             </div>
             <div className="button-row toolbar-actions">
-              <button onClick={() => setProject(createDefaultProject())}>新規</button>
+              <button onClick={() => setProject(createDefaultProject())}>New</button>
               <button className="primary" onClick={() => startPlayback(false)}>
-                再生
+                Play
               </button>
-              <button onClick={stopPlayback}>停止</button>
-              <button onClick={saveProjectFile}>保存</button>
-              <button onClick={() => fileInputRef.current?.click()}>読込</button>
+              <button onClick={stopPlayback}>Stop</button>
+              <button onClick={saveProjectFile}>Save</button>
+              <button onClick={() => fileInputRef.current?.click()}>Load</button>
             </div>
           </div>
 
@@ -327,7 +325,7 @@ export default function ComposerApp() {
                 <div className="mini-panel-title">Loop</div>
                 <div className="mini-grid three">
                   <div className="field slim">
-                    <label>状態</label>
+                    <label>Status</label>
                     <select
                       value={project.loopSettings.enabled ? 'on' : 'off'}
                       onChange={(e) =>
@@ -373,9 +371,9 @@ export default function ComposerApp() {
                   </div>
                 </div>
                 <div className="button-row">
-                  <button onClick={() => setLoopCheckMode((prev) => !prev)}>{loopCheckMode ? '重点確認 OFF' : '重点確認 ON'}</button>
+                  <button onClick={() => setLoopCheckMode((prev) => !prev)}>{loopCheckMode ? 'Focused Loop Off' : 'Focused Loop On'}</button>
                   <button className="primary" onClick={() => startPlayback(loopCheckMode)}>
-                    {loopCheckMode ? '重点確認を再生' : '範囲再生'}
+                    {loopCheckMode ? 'Play Focused Loop' : 'Play Range'}
                   </button>
                 </div>
               </div>
@@ -431,7 +429,7 @@ export default function ComposerApp() {
                 </div>
                 <div className="button-row">
                   <button className="primary" onClick={handleExport}>
-                    書き出し
+                    Export
                   </button>
                 </div>
               </div>
@@ -470,7 +468,7 @@ export default function ComposerApp() {
       <section className="panel section-panel track-panel">
         <div className="section-header compact-section-header">
           <div>
-            <h2>トラック</h2>
+            <h2>Track</h2>
           </div>
         </div>
 
@@ -504,8 +502,8 @@ export default function ComposerApp() {
                 />
               </div>
               <div className="track-actions">
-                <button onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'ミュート解除' : 'ミュート'}</button>
-                <button onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'ソロ解除' : 'ソロ'}</button>
+                <button onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'Unmute' : 'Mute'}</button>
+                <button onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'Solo Off' : 'Solo'}</button>
               </div>
             </div>
           ))}
@@ -530,26 +528,11 @@ export default function ComposerApp() {
         </div>
 
         <div className="editor-toolbar">
-          {selectedTrack?.trackType !== 'drum' && (
-            <div className="chip-group">
-              <span className="toolbar-label">入力長</span>
-              {LENGTH_OPTIONS.map((length) => (
-                <button
-                  key={length}
-                  className={`chip ${insertLength === length ? 'active' : ''}`}
-                  onClick={() => setInsertLength(length)}
-                >
-                  {length}
-                </button>
-              ))}
-            </div>
-          )}
-
           <div className="editor-selection-box">
-            {!selectedEvent && <span className="small">空セルをタップすると配置、同じ位置をもう一度タップすると削除。</span>}
+            {!selectedEvent && <span className="small">Tap an empty cell to place a note. Tap the same start cell again to remove it.</span>}
             {selectedEvent?.kind === 'note' && (
               <>
-                <span className="selection-text">選択中: {midiToNoteName(selectedEvent.pitch)} / {selectedEvent.length} step</span>
+                <span className="selection-text">Selected: {midiToNoteName(selectedEvent.pitch)} / {selectedEvent.length} step</span>
                 <div className="chip-group compact-chip-group">
                   {LENGTH_OPTIONS.map((length) => (
                     <button
@@ -568,7 +551,7 @@ export default function ComposerApp() {
             )}
             {selectedEvent?.kind === 'drum' && (
               <>
-                <span className="selection-text">選択中: {selectedEvent.drumType}</span>
+                <span className="selection-text">Selected: {selectedEvent.drumType}</span>
                 <button className="chip danger" onClick={deleteSelectedEvent}>
                   delete
                 </button>
@@ -674,12 +657,12 @@ export default function ComposerApp() {
       <section className="panel section-panel help-panel">
         <div className="section-header compact-section-header">
           <div>
-            <h2>使い方</h2>
+            <h2>How to use</h2>
           </div>
         </div>
         <div className="help-copy compact-help-copy">
-          <p className="small">Arrangementで bar を選び、トラックを選んでグリッドを直接タップします。</p>
-          <p className="small">Copy は選択中のトラックと bar を保持し、Paste は今選んでいる bar に貼り付けます。</p>
+          <p className="small">Select a bar in Arrangement, choose a track, then tap the grid directly.</p>
+          <p className="small">Copy stores the selected track and bar. Paste applies it to the currently selected bar.</p>
         </div>
       </section>
 
