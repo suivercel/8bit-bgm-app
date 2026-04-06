@@ -88,12 +88,15 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .compact-empty { padding-top: 10px; text-align: center; }
 .compact-field label { font-size: 10px; }
 .compact-field select, .compact-field input { padding: 6px 7px; min-height: 32px; font-size: 12px; }
-.arrangement-grid { display: grid; grid-template-columns: repeat(16, minmax(88px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.arrangement-grid { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 6px; padding-bottom: 2px; }
 .arrangement-cell {
-  border: 1px solid var(--border); border-radius: 6px; padding: 12px 8px; background: var(--surface-soft);
-  min-height: 60px; text-align: left;
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 6px; background: var(--surface-soft);
+  min-height: 56px; text-align: left; display: grid; gap: 2px; align-content: start;
 }
 .arrangement-cell.selected { border-color: #111111; background: #efefef; }
+.arrangement-cell strong { font-size: 11px; line-height: 1.2; }
+.arrangement-meta { font-size: 10px; color: var(--muted); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arrangement-flag { font-size: 9px; font-weight: 700; color: var(--text); }
 .status-box { padding: 10px 12px; border-radius: 4px; background: #f8f8f8; border: 1px solid var(--border); color: var(--muted); }
 .help-copy { display: grid; gap: 8px; }
 ::-webkit-scrollbar { height: 10px; width: 10px; }
@@ -111,7 +114,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   .compact-actions, .toolbar-actions { width: 100%; }
   .compact-actions button, .toolbar-actions button { flex: 1 1 140px; }
   .step-grid { min-width: 1180px; grid-template-columns: repeat(16, minmax(68px, 1fr)); }
-  .arrangement-grid { grid-template-columns: repeat(16, minmax(96px, 1fr)); }
+  .arrangement-grid { grid-template-columns: repeat(16, minmax(72px, 1fr)); overflow-x: auto; }
 }
 @media (max-width: 560px) {
   .page { padding: 10px; }

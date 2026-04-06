@@ -38,6 +38,7 @@ export default function ComposerApp() {
   const [status, setStatus] = useState<string>('準備完了');
   const [loopCheckMode, setLoopCheckMode] = useState(false);
   const [clipboardPattern, setClipboardPattern] = useState<Pattern | null>(null);
+  const [clipboardMeta, setClipboardMeta] = useState<{ barIndex: number; trackName: string } | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -48,6 +49,31 @@ export default function ComposerApp() {
   );
 
   const selectedPattern = useMemo(() => getPattern(project, selectedTrackId, selectedBar), [project, selectedTrackId, selectedBar]);
+
+
+  const getPatternUsageCount = (draft: MusicProject, patternId: string, trackId: string) => {
+    return draft.arrangement.filter((bar) => bar.patternIdByTrack[trackId] === patternId).length;
+  };
+
+  const ensureEditablePatternId = (draft: MusicProject, trackId: string, barIndex: number) => {
+    const currentPatternId = draft.arrangement[barIndex]?.patternIdByTrack[trackId];
+    if (!currentPatternId) return null;
+    const currentPattern = draft.patterns.find((pattern) => pattern.id === currentPatternId);
+    if (!currentPattern) return null;
+    const usageCount = getPatternUsageCount(draft, currentPatternId, trackId);
+    if (usageCount <= 1) return currentPatternId;
+
+    const clonedPattern: Pattern = {
+      ...JSON.parse(JSON.stringify(currentPattern)),
+      id: `p${Date.now()}_${barIndex}_${trackId}`,
+      name: `${currentPattern.name} Bar ${barIndex + 1}`,
+      trackId,
+    };
+
+    draft.patterns.push(clonedPattern);
+    draft.arrangement[barIndex].patternIdByTrack[trackId] = clonedPattern.id;
+    return clonedPattern.id;
+  };
 
   const updateProject = (updater: (draft: MusicProject) => MusicProject) => {
     setProject((current) => updater(cloneProject(current)));
@@ -124,8 +150,9 @@ export default function ComposerApp() {
     }
 
     updateProject((draft) => {
+      const editablePatternId = ensureEditablePatternId(draft, selectedTrackId, selectedBar) ?? selectedPattern.id;
       draft.patterns = draft.patterns.map((pattern: Pattern) =>
-        pattern.id === selectedPattern.id ? upsertStepEvent(pattern, step, nextEvent) : pattern,
+        pattern.id === editablePatternId ? upsertStepEvent(pattern, step, nextEvent) : pattern,
       );
       return draft;
     });
@@ -154,17 +181,19 @@ export default function ComposerApp() {
     }
 
     updateProject((draft) => {
+      const editablePatternId = ensureEditablePatternId(draft, selectedTrackId, selectedBar) ?? selectedPattern.id;
       draft.patterns = draft.patterns.map((pattern: Pattern) =>
-        pattern.id === selectedPattern.id ? upsertStepEvent(pattern, step, nextEvent) : pattern,
+        pattern.id === editablePatternId ? upsertStepEvent(pattern, step, nextEvent) : pattern,
       );
       return draft;
     });
   };
 
   const copyCurrentPattern = () => {
-    if (!selectedPattern) return;
+    if (!selectedPattern || !selectedTrack) return;
     setClipboardPattern(JSON.parse(JSON.stringify(selectedPattern)) as Pattern);
-    setStatus(`Bar ${selectedBar + 1} / ${selectedTrack?.name} のパターンをコピーしました`);
+    setClipboardMeta({ barIndex: selectedBar, trackName: selectedTrack.name });
+    setStatus(`Bar ${selectedBar + 1} / ${selectedTrack.name} をコピーしました。貼り付けたい Bar を選んで Paste を押してください。`);
   };
 
   const pastePatternToCurrentBar = () => {
@@ -182,7 +211,7 @@ export default function ComposerApp() {
       draft.arrangement[selectedBar].patternIdByTrack[selectedTrackId] = newId;
       return draft;
     });
-    setStatus(`コピーしたパターンを Bar ${selectedBar + 1} に貼り付けました`);
+    setStatus(`Clipboard の内容を Bar ${selectedBar + 1} / ${selectedTrack?.name ?? ''} に貼り付けました`);
   };
 
   const saveProjectFile = () => {
@@ -394,15 +423,22 @@ export default function ComposerApp() {
           </div>
         </div>
         <div className="arrangement-grid">
-          {project.arrangement.map((bar) => (
-            <button
-              key={bar.barIndex}
-              className={`arrangement-cell ${selectedBar === bar.barIndex ? 'selected' : ''}`}
-              onClick={() => setSelectedBar(bar.barIndex)}
-            >
-              <strong>Bar {bar.barIndex + 1}</strong>
-            </button>
-          ))}
+          {project.arrangement.map((bar) => {
+            const patternId = bar.patternIdByTrack[selectedTrackId];
+            const isCopied = clipboardMeta?.barIndex === bar.barIndex && clipboardMeta?.trackName === selectedTrack?.name;
+            return (
+              <button
+                key={bar.barIndex}
+                className={`arrangement-cell ${selectedBar === bar.barIndex ? 'selected' : ''}`}
+                onClick={() => setSelectedBar(bar.barIndex)}
+                title={`Bar ${bar.barIndex + 1}`}
+              >
+                <strong>Bar {bar.barIndex + 1}</strong>
+                <span className="arrangement-meta">{patternId ?? 'empty'}</span>
+                {isCopied && <span className="arrangement-flag">Copied</span>}
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -455,7 +491,7 @@ export default function ComposerApp() {
         <div className="section-header editor-header">
           <div>
             <h2>パターン編集</h2>
-            <p className="small">Bar {selectedBar + 1} / {selectedTrack?.name}</p>
+            <p className="small">Bar {selectedBar + 1} / {selectedTrack?.name}{clipboardMeta ? ` / Clipboard: Bar ${clipboardMeta.barIndex + 1}` : ""}</p>
           </div>
           <div className="button-row compact-actions">
             <button onClick={copyCurrentPattern}>Copy</button>
@@ -532,7 +568,7 @@ export default function ComposerApp() {
         </div>
         <div className="help-copy">
           <p className="small">ArrangementでBarを選び、Trackを選んでStepを打ち込みます。</p>
-          <p className="small">Copyで現在のパターンを保持し、貼り付けたいBarを選んでPasteを押します。</p>
+          <p className="small">Copyで現在の Bar を保持し、貼り付けたい Bar を選んで Paste を押します。編集中の Bar が他と共有中なら、その Bar だけ自動で分離して編集します。</p>
           <p className="small">LoopのStart Bar / End Barを決めて再生すると、その範囲を繰り返し確認できます。</p>
         </div>
       </section>

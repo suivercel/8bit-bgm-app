@@ -68,7 +68,8 @@ const tracks: Track[] = [
   },
 ];
 
-const patterns: Pattern[] = [
+
+const basePatterns: Pattern[] = [
   {
     id: 'p1',
     trackId: 't1',
@@ -125,7 +126,25 @@ const patterns: Pattern[] = [
   },
 ];
 
-export const createDefaultProject = (): MusicProject => ({
+export const createDefaultProject = (): MusicProject => {
+  const patterns: Pattern[] = [];
+  const arrangement = Array.from({ length: 16 }, (_, barIndex) => {
+    const patternIdByTrack: Record<string, string> = {};
+    tracks.forEach((track, index) => {
+      const template = basePatterns[index];
+      const clonedPattern: Pattern = {
+        ...JSON.parse(JSON.stringify(template)),
+        id: `${template.id}_b${barIndex + 1}`,
+        name: `${template.name} Bar ${barIndex + 1}`,
+        trackId: track.id,
+      };
+      patterns.push(clonedPattern);
+      patternIdByTrack[track.id] = clonedPattern.id;
+    });
+    return { barIndex, patternIdByTrack };
+  });
+
+  return {
   projectVersion: 1,
   title: 'new_project',
   bpm: 140,
@@ -146,13 +165,6 @@ export const createDefaultProject = (): MusicProject => ({
   },
   tracks,
   patterns,
-  arrangement: Array.from({ length: 16 }, (_, barIndex) => ({
-    barIndex,
-    patternIdByTrack: {
-      t1: 'p1',
-      t2: 'p2',
-      t3: 'p3',
-      t4: 'p4',
-    },
-  })),
-});
+  arrangement,
+};
+};
