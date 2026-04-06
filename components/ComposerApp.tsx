@@ -212,31 +212,6 @@ export default function ComposerApp() {
 
   return (
     <main className="page shell-bg">
-      <section className="hero-card">
-        <div>
-          <div className="eyebrow">8bit BGM Composer</div>
-          <h1>落ち着いた Fluent 風 UI に調整した制作画面</h1>
-          <p className="hero-text">
-            打ち込み中心の流れはそのままに、視線が散りにくい配色とカード設計へ変更しました。スマホでは縦積み、PCでは3カラムで使えます。
-          </p>
-        </div>
-        <div className="hero-stats">
-          <div className="stat-card">
-            <span className="stat-label">BPM</span>
-            <strong>{project.bpm}</strong>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Key</span>
-            <strong>
-              {project.keyRoot} {project.scale}
-            </strong>
-          </div>
-          <div className="stat-card accent">
-            <span className="stat-label">Loop</span>
-            <strong>{project.loopSettings.enabled ? 'ON' : 'OFF'}</strong>
-          </div>
-        </div>
-      </section>
 
       <section className="panel topbar-panel">
         <div className="topbar-grid">
@@ -288,7 +263,6 @@ export default function ComposerApp() {
           <div className="section-header">
             <div>
               <h2>トラック</h2>
-              <p className="small">選択したトラックに対して打ち込みを行います。</p>
             </div>
           </div>
 
@@ -407,7 +381,6 @@ export default function ComposerApp() {
           <div className="section-header">
             <div>
               <h2>ループ / 書き出し</h2>
-              <p className="small">ループの確認と書き出し設定です。</p>
             </div>
           </div>
 
@@ -516,7 +489,6 @@ export default function ComposerApp() {
               書き出し
             </button>
           </div>
-          <p className="small">この版はWAV書き出しまで対応です。MP3は次版で追加しやすい構成にしてあります。</p>
           <div className="status-box">{status}</div>
         </section>
       </div>
@@ -525,7 +497,6 @@ export default function ComposerApp() {
         <div className="section-header">
           <div>
             <h2>曲順</h2>
-            <p className="small">スマホでは横スクロール、PCでは一覧で確認できます。</p>
           </div>
         </div>
         <div className="arrangement-grid">
@@ -545,12 +516,11 @@ export default function ComposerApp() {
             <h2>使い方</h2>
           </div>
         </div>
-        <p className="small">
-          まず曲名、BPM、キーを決めてからトラックを選びます。次にステップのチェックを入れてノートやドラムを設定します。小節を切り替えてパターンを作り、ループ重点確認で末尾から先頭へ戻るつながりを耳で確認してください。
-        </p>
-        <p className="small">
-          保存は <span className="kbd">.eightbit.json</span> のプロジェクトファイルです。完成したらWAVで書き出します。
-        </p>
+        <div className="help-copy">
+          <p className="small">曲名、BPM、キーを決めてトラックを選び、各ステップをオンにして音を置きます。</p>
+          <p className="small">小節を切り替えながらパターンを作り、必要に応じて複製して曲順を組みます。</p>
+          <p className="small">保存は <span className="kbd">.eightbit.json</span> のプロジェクトファイルです。完成したらWAVで書き出します。</p>
+        </div>
       </section>
 
       <input
