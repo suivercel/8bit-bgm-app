@@ -93,7 +93,19 @@ export default function ComposerApp() {
   const [selectedEventStep, setSelectedEventStep] = useState<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const schedulerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const projectRef = useRef<MusicProject>(project);
+  const playbackLoopRef = useRef<{
+    currentStartTime: number;
+    currentEndTime: number;
+    nextStartTime: number | null;
+    nextEndTime: number | null;
+    startBar: number;
+    endBar: number;
+    loopStepCount: number;
+    stepDuration: number;
+  } | null>(null);
 
   const selectedTrack = useMemo(
     () => project.tracks.find((track) => track.id === selectedTrackId) ?? project.tracks[0],
@@ -109,6 +121,10 @@ export default function ComposerApp() {
   useEffect(() => {
     setSelectedEventStep(null);
   }, [selectedBar, selectedTrackId]);
+
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
 
   const getPatternUsageCount = (draft: MusicProject, patternId: string, trackId: string) => {
     return draft.arrangement.filter((bar) => bar.patternIdByTrack[trackId] === patternId).length;
@@ -152,10 +168,15 @@ export default function ComposerApp() {
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    if (schedulerRef.current) {
+      window.clearInterval(schedulerRef.current);
+      schedulerRef.current = null;
+    }
     if (audioContextRef.current) {
       void audioContextRef.current.close();
       audioContextRef.current = null;
     }
+    playbackLoopRef.current = null;
     setPlayingStep(null);
     setIsPlaying(false);
     setStatus(nextStatus);
@@ -166,35 +187,88 @@ export default function ComposerApp() {
     const context = new AudioContext();
     audioContextRef.current = context;
 
-    const tempProject = cloneProject(project);
-    const playbackLoops = loopOnly || tempProject.loopSettings.enabled;
-    const playRange = normalizeBarRange(tempProject.loopSettings.startBar, tempProject.loopSettings.endBar, tempProject.totalBars);
-    const { totalDuration, startBar, endBar } = renderProject(tempProject, context, {
-      startBar: playRange.startBar,
-      endBar: playRange.endBar,
-      loopEnabled: playbackLoops,
-    });
-    const stepDurationMs = (60 / tempProject.bpm) * 0.25 * 1000;
-    const loopStepCount = (endBar - startBar + 1) * 16;
-    const startedAt = performance.now();
-    setIsPlaying(true);
-    setStatus(loopOnly ? `Focused loop: bar ${startBar}-${endBar}` : `Playing: bar ${startBar}-${endBar}`);
+    const initialProject = cloneProject(projectRef.current);
+    const playbackLoops = loopOnly || initialProject.loopSettings.enabled;
+    const playRange = normalizeBarRange(initialProject.loopSettings.startBar, initialProject.loopSettings.endBar, initialProject.totalBars);
+    const stepDuration = (60 / initialProject.bpm) * 0.25;
+    const loopStepCount = (playRange.endBar - playRange.startBar + 1) * 16;
+    const leadTime = 0.25;
+
+    const scheduleRangeAt = (snapshot: MusicProject, startTime: number) => {
+      const rendered = renderProject(snapshot, context, {
+        startBar: playRange.startBar,
+        endBar: playRange.endBar,
+        loopEnabled: false,
+        baseTime: startTime,
+      });
+      return rendered.totalDuration;
+    };
+
+    const initialStartTime = context.currentTime + 0.05;
+    const initialDuration = scheduleRangeAt(initialProject, initialStartTime);
+
+    if (playbackLoops) {
+      playbackLoopRef.current = {
+        currentStartTime: initialStartTime,
+        currentEndTime: initialStartTime + initialDuration,
+        nextStartTime: null,
+        nextEndTime: null,
+        startBar: playRange.startBar,
+        endBar: playRange.endBar,
+        loopStepCount,
+        stepDuration,
+      };
+
+      schedulerRef.current = window.setInterval(() => {
+        const loopState = playbackLoopRef.current;
+        if (!loopState || context.state === 'closed') return;
+        const now = context.currentTime;
+
+        if (loopState.nextStartTime === null && now >= loopState.currentEndTime - leadTime) {
+          const nextSnapshot = cloneProject(projectRef.current);
+          const nextDuration = scheduleRangeAt(nextSnapshot, loopState.currentEndTime);
+          loopState.nextStartTime = loopState.currentEndTime;
+          loopState.nextEndTime = loopState.currentEndTime + nextDuration;
+        }
+
+        if (loopState.nextStartTime !== null && now >= loopState.currentEndTime) {
+          loopState.currentStartTime = loopState.nextStartTime;
+          loopState.currentEndTime = loopState.nextEndTime ?? loopState.currentEndTime;
+          loopState.nextStartTime = null;
+          loopState.nextEndTime = null;
+        }
+      }, 40);
+
+      intervalRef.current = window.setInterval(() => {
+        const loopState = playbackLoopRef.current;
+        if (!loopState) return;
+        const now = context.currentTime;
+        const elapsed = Math.max(0, now - loopState.currentStartTime);
+        const rawStep = Math.floor(elapsed / loopState.stepDuration);
+        const currentStep = loopState.loopStepCount > 0 ? rawStep % loopState.loopStepCount : rawStep;
+        setPlayingStep(currentStep % 16);
+      }, 50);
+
+      setIsPlaying(true);
+      setStatus(loopOnly ? `Focused loop: bar ${playRange.startBar}-${playRange.endBar}` : `Playing: bar ${playRange.startBar}-${playRange.endBar}`);
+      return;
+    }
 
     intervalRef.current = window.setInterval(() => {
-      const elapsed = performance.now() - startedAt;
-      const rawStep = Math.floor(elapsed / stepDurationMs);
-      const currentStep = loopStepCount > 0 ? rawStep % loopStepCount : rawStep;
-      setPlayingStep(currentStep % 16);
-      if (!playbackLoops && elapsed > totalDuration * 1000 + 50) {
+      const elapsed = Math.max(0, context.currentTime - initialStartTime);
+      const rawStep = Math.floor(elapsed / stepDuration);
+      setPlayingStep(rawStep % 16);
+      if (elapsed > initialDuration + 0.05) {
         stopPlayback('Stopped');
       }
     }, 50);
 
-    if (!playbackLoops) {
-      window.setTimeout(() => {
-        stopPlayback('Stopped');
-      }, totalDuration * 1000 + 80);
-    }
+    setIsPlaying(true);
+    setStatus(`Playing: bar ${playRange.startBar}-${playRange.endBar}`);
+
+    window.setTimeout(() => {
+      stopPlayback('Stopped');
+    }, initialDuration * 1000 + 120);
   };
 
   const setNoteAt = (step: number, pitch: number) => {

@@ -111,7 +111,7 @@ function scheduleEvent(
 export function renderProject(
   project: MusicProject,
   context: BaseAudioContext,
-  options?: { startBar?: number; endBar?: number; loopEnabled?: boolean },
+  options?: { startBar?: number; endBar?: number; loopEnabled?: boolean; baseTime?: number },
 ) {
   const destination = context.createGain();
   destination.gain.value = 1;
@@ -135,7 +135,8 @@ export function renderProject(
       if (!pattern) continue;
 
       for (const event of pattern.events) {
-        const eventStart = context.currentTime + (barIndex - startIndex) * 16 * stepDuration + event.step * stepDuration;
+        const timelineBase = options?.baseTime ?? context.currentTime;
+        const eventStart = timelineBase + (barIndex - startIndex) * 16 * stepDuration + event.step * stepDuration;
         scheduleEvent(context, destination, track, event, eventStart, stepDuration, project.masterVolume);
       }
     }
