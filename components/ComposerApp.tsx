@@ -127,13 +127,23 @@ export default function ComposerApp() {
     const event = getEventAtStep(selectedPattern, step);
     if (!event) return;
 
-    const nextEvent = { ...event } as PatternEvent;
+    let nextEvent: PatternEvent = event;
+
     if (event.kind === 'note') {
-      if (field === 'pitch' && typeof value === 'string') nextEvent.pitch = noteNameToMidi(value);
-      if (field === 'length' && typeof value === 'number') nextEvent.length = value;
+      nextEvent = {
+        ...event,
+        ...(field === 'pitch' && typeof value === 'string' ? { pitch: noteNameToMidi(value) } : {}),
+        ...(field === 'length' && typeof value === 'number' ? { length: value } : {}),
+      };
     }
+
     if (event.kind === 'drum') {
-      if (field === 'drumType' && typeof value === 'string') nextEvent.drumType = value as 'kick' | 'snare' | 'hat';
+      nextEvent = {
+        ...event,
+        ...(field === 'drumType' && typeof value === 'string'
+          ? { drumType: value as 'kick' | 'snare' | 'hat' }
+          : {}),
+      };
     }
 
     updateProject((draft) => {
