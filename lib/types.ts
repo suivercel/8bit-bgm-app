@@ -11,6 +11,8 @@ export interface ExportSettings {
   sampleRate: SampleRate;
   bitDepth: BitDepth;
   channels: 2;
+  startBar: number;
+  endBar: number;
 }
 
 export interface PulseInstrumentSettings {

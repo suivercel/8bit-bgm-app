@@ -101,14 +101,16 @@ export const createDefaultProject = (): MusicProject => {
     masterVolume: 0.9,
     loopSettings: {
       enabled: true,
-      startBar: 0,
-      endBar: 15,
+      startBar: 1,
+      endBar: 16,
     },
     exportSettings: {
       format: 'wav',
       sampleRate: 44100,
       bitDepth: 16,
       channels: 2,
+      startBar: 1,
+      endBar: 16,
     },
     tracks,
     patterns,

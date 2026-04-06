@@ -89,6 +89,21 @@ button.primary {
   font-weight: 600;
 }
 button.primary:hover { background: #222222; border-color: #222222; }
+
+button.state-active {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+button.primary.state-active {
+  background: #000000;
+  border-color: #000000;
+}
+.track-actions button.state-active {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 .small {
   font-size: 12px;
@@ -108,6 +123,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .mini-panel-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
 .mini-grid { display: grid; gap: 8px; }
 .mini-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mini-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mini-grid.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .topbar-status { margin-top: 12px; }
 .status-box {
   padding: 10px 12px;

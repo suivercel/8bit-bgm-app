@@ -45,11 +45,47 @@ function getCoveringNoteAt(pattern: Pattern | null, pitch: number, step: number)
   return null;
 }
 
+function clampBar(value: number, totalBars: number) {
+  return Math.min(Math.max(1, value), totalBars);
+}
+
+function normalizeBarRange(startBar: number, endBar: number, totalBars: number) {
+  const safeStart = clampBar(startBar, totalBars);
+  const safeEnd = Math.min(Math.max(safeStart, endBar), totalBars);
+  return { startBar: safeStart, endBar: safeEnd };
+}
+
+function normalizeProject(project: MusicProject): MusicProject {
+  const totalBars = project.totalBars || 16;
+  const loopLooksZeroBased = project.loopSettings.startBar === 0 || project.loopSettings.endBar === totalBars - 1;
+  const rawLoopStart = loopLooksZeroBased ? project.loopSettings.startBar + 1 : project.loopSettings.startBar || 1;
+  const rawLoopEnd = loopLooksZeroBased ? project.loopSettings.endBar + 1 : project.loopSettings.endBar || totalBars;
+  const loopRange = normalizeBarRange(rawLoopStart, rawLoopEnd, totalBars);
+  const rawExportStart = project.exportSettings.startBar ?? 1;
+  const rawExportEnd = project.exportSettings.endBar ?? totalBars;
+  const exportRange = normalizeBarRange(rawExportStart, rawExportEnd, totalBars);
+
+  return {
+    ...project,
+    loopSettings: {
+      ...project.loopSettings,
+      startBar: loopRange.startBar,
+      endBar: loopRange.endBar,
+    },
+    exportSettings: {
+      ...project.exportSettings,
+      startBar: exportRange.startBar,
+      endBar: exportRange.endBar,
+    },
+  };
+}
+
 export default function ComposerApp() {
   const [project, setProject] = useState<MusicProject>(createDefaultProject);
   const [selectedTrackId, setSelectedTrackId] = useState<string>('t1');
   const [selectedBar, setSelectedBar] = useState<number>(0);
   const [playingStep, setPlayingStep] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [status, setStatus] = useState<string>('Ready');
   const [loopCheckMode, setLoopCheckMode] = useState(false);
   const [clipboardPattern, setClipboardPattern] = useState<Pattern | null>(null);
@@ -111,7 +147,7 @@ export default function ComposerApp() {
     });
   };
 
-  const stopPlayback = () => {
+  const stopPlayback = (nextStatus = 'Stopped') => {
     if (intervalRef.current) {
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -121,39 +157,42 @@ export default function ComposerApp() {
       audioContextRef.current = null;
     }
     setPlayingStep(null);
+    setIsPlaying(false);
+    setStatus(nextStatus);
   };
 
   const startPlayback = async (loopOnly = false) => {
-    stopPlayback();
+    stopPlayback('Ready');
     const context = new AudioContext();
     audioContextRef.current = context;
 
     const tempProject = cloneProject(project);
-    if (loopOnly) {
-      tempProject.loopSettings.enabled = true;
-    }
-
-    const { totalDuration } = renderProject(tempProject, context, tempProject.loopSettings.startBar);
+    const playbackLoops = loopOnly || tempProject.loopSettings.enabled;
+    const playRange = normalizeBarRange(tempProject.loopSettings.startBar, tempProject.loopSettings.endBar, tempProject.totalBars);
+    const { totalDuration, startBar, endBar } = renderProject(tempProject, context, {
+      startBar: playRange.startBar,
+      endBar: playRange.endBar,
+      loopEnabled: playbackLoops,
+    });
     const stepDurationMs = (60 / tempProject.bpm) * 0.25 * 1000;
-    const loopStepCount = (tempProject.loopSettings.endBar - tempProject.loopSettings.startBar + 1) * 16;
+    const loopStepCount = (endBar - startBar + 1) * 16;
     const startedAt = performance.now();
-    setStatus(loopOnly ? 'ループ重点確認を再生中' : '再生中');
+    setIsPlaying(true);
+    setStatus(loopOnly ? `Focused loop: bar ${startBar}-${endBar}` : `Playing: bar ${startBar}-${endBar}`);
 
     intervalRef.current = window.setInterval(() => {
       const elapsed = performance.now() - startedAt;
       const rawStep = Math.floor(elapsed / stepDurationMs);
       const currentStep = loopStepCount > 0 ? rawStep % loopStepCount : rawStep;
       setPlayingStep(currentStep % 16);
-      if (!tempProject.loopSettings.enabled && elapsed > totalDuration * 1000 + 50) {
-        stopPlayback();
-        setStatus('再生停止');
+      if (!playbackLoops && elapsed > totalDuration * 1000 + 50) {
+        stopPlayback('Stopped');
       }
     }, 50);
 
-    if (!tempProject.loopSettings.enabled) {
+    if (!playbackLoops) {
       window.setTimeout(() => {
-        stopPlayback();
-        setStatus('再生停止');
+        stopPlayback('Stopped');
       }, totalDuration * 1000 + 80);
     }
   };
@@ -244,7 +283,7 @@ export default function ComposerApp() {
 
   const loadProjectFile = async (file: File) => {
     const text = await file.text();
-    const data = JSON.parse(text) as MusicProject;
+    const data = normalizeProject(JSON.parse(text) as MusicProject);
     setProject(data);
     setSelectedTrackId(data.tracks[0]?.id ?? 't1');
     setSelectedBar(0);
@@ -257,10 +296,11 @@ export default function ComposerApp() {
       setStatus('MP3 is not implemented in this version. Please select WAV.');
       return;
     }
-    setStatus('Exporting WAV');
-    const blob = await exportWav(project);
+    const exportRange = normalizeBarRange(project.exportSettings.startBar, project.exportSettings.endBar, project.totalBars);
+    setStatus(`Exporting WAV: bar ${exportRange.startBar}-${exportRange.endBar}`);
+    const blob = await exportWav(project, exportRange);
     downloadBlob(blob, `${project.title || 'bgm'}.wav`);
-    setStatus('WAV exported');
+    setStatus(`WAV exported: bar ${exportRange.startBar}-${exportRange.endBar}`);
   };
 
   const applyTrackPatch = (trackId: string, patch: Partial<Track>) => {
@@ -309,11 +349,23 @@ export default function ComposerApp() {
               </div>
             </div>
             <div className="button-row toolbar-actions">
-              <button onClick={() => setProject(createDefaultProject())}>New</button>
-              <button className="primary" onClick={() => startPlayback(false)}>
+              <button
+                onClick={() => {
+                  stopPlayback('Ready');
+                  setProject(createDefaultProject());
+                  setSelectedTrackId('t1');
+                  setSelectedBar(0);
+                  setSelectedEventStep(null);
+                }}
+              >
+                New
+              </button>
+              <button className={`primary ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(false)}>
                 Play
               </button>
-              <button onClick={stopPlayback}>Stop</button>
+              <button className={!isPlaying ? 'state-active' : ''} onClick={() => stopPlayback('Stopped')}>
+                Stop
+              </button>
               <button onClick={saveProjectFile}>Save</button>
               <button onClick={() => fileInputRef.current?.click()}>Load</button>
             </div>
@@ -322,8 +374,8 @@ export default function ComposerApp() {
           <div className="topbar-side">
             <div className="topbar-side-grid">
               <div className="mini-panel">
-                <div className="mini-panel-title">Loop</div>
-                <div className="mini-grid three">
+                <div className="mini-panel-title">Loop / Play</div>
+                <div className="mini-grid four">
                   <div className="field slim">
                     <label>Status</label>
                     <select
@@ -343,14 +395,18 @@ export default function ComposerApp() {
                     <label>Start bar</label>
                     <input
                       type="number"
-                      min={0}
-                      max={project.totalBars - 1}
+                      min={1}
+                      max={project.totalBars}
                       value={project.loopSettings.startBar}
                       onChange={(e) =>
-                        updateProject((draft) => ({
-                          ...draft,
-                          loopSettings: { ...draft.loopSettings, startBar: Number(e.target.value) },
-                        }))
+                        updateProject((draft) => {
+                          const startBar = clampBar(Number(e.target.value), draft.totalBars);
+                          const range = normalizeBarRange(startBar, draft.loopSettings.endBar, draft.totalBars);
+                          return {
+                            ...draft,
+                            loopSettings: { ...draft.loopSettings, startBar: range.startBar, endBar: range.endBar },
+                          };
+                        })
                       }
                     />
                   </div>
@@ -358,21 +414,30 @@ export default function ComposerApp() {
                     <label>End bar</label>
                     <input
                       type="number"
-                      min={project.loopSettings.startBar}
-                      max={project.totalBars - 1}
+                      min={1}
+                      max={project.totalBars}
                       value={project.loopSettings.endBar}
                       onChange={(e) =>
-                        updateProject((draft) => ({
-                          ...draft,
-                          loopSettings: { ...draft.loopSettings, endBar: Number(e.target.value) },
-                        }))
+                        updateProject((draft) => {
+                          const endBar = clampBar(Number(e.target.value), draft.totalBars);
+                          const range = normalizeBarRange(draft.loopSettings.startBar, endBar, draft.totalBars);
+                          return {
+                            ...draft,
+                            loopSettings: { ...draft.loopSettings, startBar: range.startBar, endBar: range.endBar },
+                          };
+                        })
                       }
                     />
                   </div>
+                  <div className="field slim">
+                    <label>Mode</label>
+                    <button className={loopCheckMode ? 'state-active' : ''} onClick={() => setLoopCheckMode((prev) => !prev)}>
+                      {loopCheckMode ? 'Focused' : 'Standard'}
+                    </button>
+                  </div>
                 </div>
                 <div className="button-row">
-                  <button onClick={() => setLoopCheckMode((prev) => !prev)}>{loopCheckMode ? 'Focused Loop Off' : 'Focused Loop On'}</button>
-                  <button className="primary" onClick={() => startPlayback(loopCheckMode)}>
+                  <button className={`primary ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(loopCheckMode)}>
                     {loopCheckMode ? 'Play Focused Loop' : 'Play Range'}
                   </button>
                 </div>
@@ -380,7 +445,7 @@ export default function ComposerApp() {
 
               <div className="mini-panel">
                 <div className="mini-panel-title">Export</div>
-                <div className="mini-grid three">
+                <div className="mini-grid five">
                   <div className="field slim">
                     <label>Format</label>
                     <select
@@ -425,6 +490,44 @@ export default function ComposerApp() {
                       <option value={16}>16bit</option>
                       <option value={24}>24bit</option>
                     </select>
+                  </div>
+                  <div className="field slim">
+                    <label>Start bar</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={project.totalBars}
+                      value={project.exportSettings.startBar}
+                      onChange={(e) =>
+                        updateProject((draft) => {
+                          const startBar = clampBar(Number(e.target.value), draft.totalBars);
+                          const range = normalizeBarRange(startBar, draft.exportSettings.endBar, draft.totalBars);
+                          return {
+                            ...draft,
+                            exportSettings: { ...draft.exportSettings, startBar: range.startBar, endBar: range.endBar },
+                          };
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="field slim">
+                    <label>End bar</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={project.totalBars}
+                      value={project.exportSettings.endBar}
+                      onChange={(e) =>
+                        updateProject((draft) => {
+                          const endBar = clampBar(Number(e.target.value), draft.totalBars);
+                          const range = normalizeBarRange(draft.exportSettings.startBar, endBar, draft.totalBars);
+                          return {
+                            ...draft,
+                            exportSettings: { ...draft.exportSettings, startBar: range.startBar, endBar: range.endBar },
+                          };
+                        })
+                      }
+                    />
                   </div>
                 </div>
                 <div className="button-row">
@@ -502,8 +605,8 @@ export default function ComposerApp() {
                 />
               </div>
               <div className="track-actions">
-                <button onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'Unmute' : 'Mute'}</button>
-                <button onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'Solo Off' : 'Solo'}</button>
+                <button className={track.muted ? 'state-active' : ''} onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'Unmute' : 'Mute'}</button>
+                <button className={track.solo ? 'state-active' : ''} onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'Solo Off' : 'Solo'}</button>
               </div>
             </div>
           ))}

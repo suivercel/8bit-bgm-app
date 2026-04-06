@@ -10,6 +10,12 @@ function createNoiseBuffer(context: BaseAudioContext) {
   return buffer;
 }
 
+function normalizeBarRange(startBar: number, endBar: number, totalBars: number) {
+  const safeStart = Math.min(Math.max(1, startBar), totalBars);
+  const safeEnd = Math.min(Math.max(safeStart, endBar), totalBars);
+  return { startBar: safeStart, endBar: safeEnd };
+}
+
 function scheduleOscillator(
   context: BaseAudioContext,
   destination: AudioNode,
@@ -102,16 +108,26 @@ function scheduleEvent(
   scheduleOscillator(context, destination, wave, frequency, startTime, duration, volume, pan);
 }
 
-export function renderProject(project: MusicProject, context: BaseAudioContext, startAt = 0) {
+export function renderProject(
+  project: MusicProject,
+  context: BaseAudioContext,
+  options?: { startBar?: number; endBar?: number; loopEnabled?: boolean },
+) {
   const destination = context.createGain();
   destination.gain.value = 1;
   destination.connect(context.destination);
 
   const stepDuration = getStepDurationSeconds(project.bpm);
-  const loopStartBar = project.loopSettings.enabled ? project.loopSettings.startBar : startAt;
-  const loopEndBar = project.loopSettings.enabled ? project.loopSettings.endBar : project.totalBars - 1;
+  const fallbackRange = project.loopSettings.enabled
+    ? { startBar: project.loopSettings.startBar, endBar: project.loopSettings.endBar }
+    : { startBar: 1, endBar: project.totalBars };
+  const requestedStart = options?.startBar ?? fallbackRange.startBar;
+  const requestedEnd = options?.endBar ?? fallbackRange.endBar;
+  const range = normalizeBarRange(requestedStart, requestedEnd, project.totalBars);
+  const startIndex = range.startBar - 1;
+  const endIndex = range.endBar - 1;
 
-  for (let barIndex = loopStartBar; barIndex <= loopEndBar; barIndex += 1) {
+  for (let barIndex = startIndex; barIndex <= endIndex; barIndex += 1) {
     for (const track of project.tracks) {
       if (!isTrackAudible(track, project.tracks)) continue;
       const patternId = project.arrangement[barIndex]?.patternIdByTrack[track.id];
@@ -119,14 +135,16 @@ export function renderProject(project: MusicProject, context: BaseAudioContext, 
       if (!pattern) continue;
 
       for (const event of pattern.events) {
-        const eventStart = context.currentTime + (barIndex - loopStartBar) * 16 * stepDuration + event.step * stepDuration;
+        const eventStart = context.currentTime + (barIndex - startIndex) * 16 * stepDuration + event.step * stepDuration;
         scheduleEvent(context, destination, track, event, eventStart, stepDuration, project.masterVolume);
       }
     }
   }
 
   return {
-    totalDuration: (loopEndBar - loopStartBar + 1) * 16 * stepDuration,
+    totalDuration: (endIndex - startIndex + 1) * 16 * stepDuration,
+    startBar: range.startBar,
+    endBar: range.endBar,
   };
 }
 
@@ -184,11 +202,10 @@ function audioBufferToWaveBlob(audioBuffer: AudioBuffer, bitDepth: 16 | 24) {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-export async function exportWav(project: MusicProject) {
+export async function exportWav(project: MusicProject, range?: { startBar?: number; endBar?: number }) {
   const stepDuration = getStepDurationSeconds(project.bpm);
-  const barCount = project.loopSettings.enabled
-    ? project.loopSettings.endBar - project.loopSettings.startBar + 1
-    : project.totalBars;
+  const normalized = normalizeBarRange(range?.startBar ?? project.exportSettings.startBar, range?.endBar ?? project.exportSettings.endBar, project.totalBars);
+  const barCount = normalized.endBar - normalized.startBar + 1;
   const duration = Math.max(1, barCount * 16 * stepDuration + 0.5);
 
   const offlineContext = new OfflineAudioContext({
@@ -197,7 +214,7 @@ export async function exportWav(project: MusicProject) {
     sampleRate: project.exportSettings.sampleRate,
   });
 
-  renderProject(project, offlineContext, project.loopSettings.startBar);
+  renderProject(project, offlineContext, { startBar: normalized.startBar, endBar: normalized.endBar, loopEnabled: false });
   const audioBuffer = await offlineContext.startRendering();
   return audioBufferToWaveBlob(audioBuffer, project.exportSettings.bitDepth);
 }
