@@ -12,14 +12,15 @@ import {
   noteNameToMidi,
   upsertStepEvent,
 } from '@/lib/music';
-import { DrumType, MusicProject, NoteEvent, Pattern, PatternEvent, Track } from '@/lib/types';
+import { DrumType, MusicProject, NoteEvent, Pattern, Track } from '@/lib/types';
 
 const KEY_OPTIONS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-const NOTE_ROW_NAMES = ['C6', 'B5', 'Bb5', 'A5', 'Ab5', 'G5', 'F#5', 'F5', 'E5', 'Eb5', 'D5', 'C#5', 'C5', 'B4', 'Bb4', 'A4', 'Ab4', 'G4', 'F#4', 'F4', 'E4', 'Eb4', 'D4', 'C#4', 'C4'];
-const NOTE_ROWS = NOTE_ROW_NAMES.map((name) => ({ name, midi: noteNameToMidi(name) }));
 const DRUM_ROWS: DrumType[] = ['kick', 'snare', 'hat'];
 const LENGTH_OPTIONS = [1, 2, 3, 4] as const;
-const STAFF_LINE_CLASSES = new Set([2, 4, 5, 7, 11]);
+const STAFF_LINE_CLASSES = new Set([0, 4, 7, 11]);
+const NOTE_SEQUENCE = ['C', 'B', 'Bb', 'A', 'Ab', 'G', 'F#', 'F', 'E', 'Eb', 'D', 'C#', 'C'];
+const MIN_EDITOR_OCTAVE = 1;
+const MAX_EDITOR_OCTAVE = 6;
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -55,6 +56,24 @@ function normalizeBarRange(startBar: number, endBar: number, totalBars: number) 
   return { startBar: safeStart, endBar: safeEnd };
 }
 
+function clampEditorOctave(value: number) {
+  return Math.min(Math.max(MIN_EDITOR_OCTAVE, value), MAX_EDITOR_OCTAVE);
+}
+
+function getDefaultEditorOctave(track: Track | undefined) {
+  if (!track) return 4;
+  if (track.trackType === 'bass') return 3;
+  return 4;
+}
+
+function getVisibleNoteRows(octave: number) {
+  return NOTE_SEQUENCE.map((name) => {
+    const octaveNumber = name === 'C' ? octave + 1 : octave;
+    const noteName = `${name}${octaveNumber}`;
+    return { name: noteName, midi: noteNameToMidi(noteName) };
+  });
+}
+
 function normalizeProject(project: MusicProject): MusicProject {
   const totalBars = project.totalBars || 16;
   const loopLooksZeroBased = project.loopSettings.startBar === 0 || project.loopSettings.endBar === totalBars - 1;
@@ -87,10 +106,10 @@ export default function ComposerApp() {
   const [playingStep, setPlayingStep] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [status, setStatus] = useState<string>('Ready');
-  const [loopCheckMode, setLoopCheckMode] = useState(false);
   const [clipboardPattern, setClipboardPattern] = useState<Pattern | null>(null);
   const [clipboardMeta, setClipboardMeta] = useState<{ barIndex: number; trackName: string } | null>(null);
   const [selectedEventStep, setSelectedEventStep] = useState<number | null>(null);
+  const [editorOctave, setEditorOctave] = useState<number>(4);
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const schedulerRef = useRef<number | null>(null);
@@ -112,6 +131,8 @@ export default function ComposerApp() {
     [project.tracks, selectedTrackId],
   );
 
+  const visibleNoteRows = useMemo(() => getVisibleNoteRows(editorOctave), [editorOctave]);
+
   const selectedPattern = useMemo(() => getPattern(project, selectedTrackId, selectedBar), [project, selectedTrackId, selectedBar]);
   const selectedEvent = useMemo(() => {
     if (selectedEventStep === null) return null;
@@ -125,6 +146,15 @@ export default function ComposerApp() {
   useEffect(() => {
     projectRef.current = project;
   }, [project]);
+
+
+  const selectTrack = (trackId: string) => {
+    const nextTrack = project.tracks.find((track) => track.id === trackId);
+    setSelectedTrackId(trackId);
+    if (nextTrack && nextTrack.trackType !== 'drum') {
+      setEditorOctave(getDefaultEditorOctave(nextTrack));
+    }
+  };
 
   const getPatternUsageCount = (draft: MusicProject, patternId: string, trackId: string) => {
     return draft.arrangement.filter((bar) => bar.patternIdByTrack[trackId] === patternId).length;
@@ -182,13 +212,13 @@ export default function ComposerApp() {
     setStatus(nextStatus);
   };
 
-  const startPlayback = async (loopOnly = false) => {
+  const startPlayback = async () => {
     stopPlayback('Ready');
     const context = new AudioContext();
     audioContextRef.current = context;
 
     const initialProject = cloneProject(projectRef.current);
-    const playbackLoops = loopOnly || initialProject.loopSettings.enabled;
+    const playbackLoops = initialProject.loopSettings.enabled;
     const playRange = normalizeBarRange(initialProject.loopSettings.startBar, initialProject.loopSettings.endBar, initialProject.totalBars);
     const stepDuration = (60 / initialProject.bpm) * 0.25;
     const loopStepCount = (playRange.endBar - playRange.startBar + 1) * 16;
@@ -250,7 +280,7 @@ export default function ComposerApp() {
       }, 50);
 
       setIsPlaying(true);
-      setStatus(loopOnly ? `Focused loop: bar ${playRange.startBar}-${playRange.endBar}` : `Playing: bar ${playRange.startBar}-${playRange.endBar}`);
+      setStatus(`Playing: bar ${playRange.startBar}-${playRange.endBar}`);
       return;
     }
 
@@ -283,7 +313,7 @@ export default function ComposerApp() {
       const nextEvent: NoteEvent = {
         kind: 'note',
         step,
-        length: existingEvent?.kind === 'note' ? existingEvent.length : 2,
+        length: existingEvent?.kind === 'note' ? existingEvent.length : 1,
         pitch,
         velocity: 1,
         gate: 0.9,
@@ -362,6 +392,7 @@ export default function ComposerApp() {
     setSelectedTrackId(data.tracks[0]?.id ?? 't1');
     setSelectedBar(0);
     setSelectedEventStep(null);
+    setEditorOctave(getDefaultEditorOctave(data.tracks[0]));
     setStatus('Project loaded');
   };
 
@@ -389,7 +420,7 @@ export default function ComposerApp() {
       <section className="panel topbar-panel">
         <div className="topbar-layout">
           <div className="topbar-main">
-            <div className="topbar-grid">
+            <div className="topbar-grid compact-topbar-grid">
               <div className="field wide">
                 <label>Title</label>
                 <input value={project.title} onChange={(e) => updateProject((draft) => ({ ...draft, title: e.target.value }))} />
@@ -426,19 +457,15 @@ export default function ComposerApp() {
               <button
                 onClick={() => {
                   stopPlayback('Ready');
-                  setProject(createDefaultProject());
+                  const freshProject = createDefaultProject();
+                  setProject(freshProject);
                   setSelectedTrackId('t1');
                   setSelectedBar(0);
                   setSelectedEventStep(null);
+                  setEditorOctave(getDefaultEditorOctave(freshProject.tracks[0]));
                 }}
               >
                 New
-              </button>
-              <button className={`transport-button ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(false)}>
-                Play
-              </button>
-              <button className={`transport-button ${!isPlaying ? 'state-active' : ''}`} onClick={() => stopPlayback('Stopped')}>
-                Stop
               </button>
               <button onClick={saveProjectFile}>Save</button>
               <button onClick={() => fileInputRef.current?.click()}>Load</button>
@@ -503,17 +530,6 @@ export default function ComposerApp() {
                       }
                     />
                   </div>
-                  <div className="field slim">
-                    <label>Mode</label>
-                    <button className={loopCheckMode ? 'state-active' : ''} onClick={() => setLoopCheckMode((prev) => !prev)}>
-                      {loopCheckMode ? 'Focused' : 'Standard'}
-                    </button>
-                  </div>
-                </div>
-                <div className="button-row">
-                  <button className={`transport-button ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback(loopCheckMode)}>
-                    {loopCheckMode ? 'Play Focused Loop' : 'Play Range'}
-                  </button>
                 </div>
               </div>
 
@@ -642,71 +658,96 @@ export default function ComposerApp() {
         </div>
       </section>
 
-      <section className="panel section-panel track-panel">
-        <div className="section-header compact-section-header">
-          <div>
-            <h2>Track</h2>
-          </div>
-        </div>
-
-        <div className="track-list">
-          {project.tracks.map((track) => (
-            <div key={track.id} className={`track-row ${selectedTrackId === track.id ? 'active' : ''}`}>
-              <button className="track-select" onClick={() => setSelectedTrackId(track.id)}>
-                <span>{track.name}</span>
-                <span className="track-badge">{track.trackType}</span>
-              </button>
-              <div className="field slim">
-                <label>Volume</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={track.volume}
-                  onChange={(e) => applyTrackPatch(track.id, { volume: Number(e.target.value) })}
-                />
-              </div>
-              <div className="field slim">
-                <label>Pan</label>
-                <input
-                  type="range"
-                  min={-1}
-                  max={1}
-                  step={0.01}
-                  value={track.pan}
-                  onChange={(e) => applyTrackPatch(track.id, { pan: Number(e.target.value) })}
-                />
-              </div>
-              <div className="track-actions">
-                <button className={track.muted ? 'state-active' : ''} onClick={() => applyTrackPatch(track.id, { muted: !track.muted })}>{track.muted ? 'Unmute' : 'Mute'}</button>
-                <button className={track.solo ? 'state-active' : ''} onClick={() => applyTrackPatch(track.id, { solo: !track.solo })}>{track.solo ? 'Solo Off' : 'Solo'}</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel section-panel editor-panel">
-        <div className="section-header editor-header">
+      <section className="panel section-panel editor-panel compact-editor-panel">
+        <div className="section-header editor-header compact-section-header">
           <div>
             <h2>Pattern Editor</h2>
-            <p className="small">
+            <p className="small compact-editor-meta">
               bar {selectedBar + 1} / {selectedTrack?.name}
+              {selectedTrack?.trackType !== 'drum' ? ` / view ${editorOctave}-${editorOctave + 1} octave` : ''}
               {clipboardMeta ? ` / clipboard: ${clipboardMeta.trackName} bar ${clipboardMeta.barIndex + 1}` : ''}
             </p>
           </div>
-          <div className="button-row compact-actions">
-            <button onClick={copyCurrentPattern}>Copy</button>
-            <button onClick={pastePatternToCurrentBar} disabled={!clipboardPattern}>
-              Paste into bar {selectedBar + 1}
-            </button>
+        </div>
+
+        <div className="editor-control-bar">
+          <div className="editor-track-cluster">
+            <div className="track-tab-row">
+              {project.tracks.map((track) => (
+                <button
+                  key={track.id}
+                  className={`track-tab ${selectedTrackId === track.id ? 'state-active' : ''}`}
+                  onClick={() => selectTrack(track.id)}
+                >
+                  {track.name}
+                </button>
+              ))}
+            </div>
+            {selectedTrack && (
+              <div className="track-compact-controls">
+                <div className="inline-control slider-inline-control">
+                  <span className="toolbar-label">Vol</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={selectedTrack.volume}
+                    onChange={(e) => applyTrackPatch(selectedTrack.id, { volume: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="inline-control slider-inline-control">
+                  <span className="toolbar-label">Pan</span>
+                  <input
+                    type="range"
+                    min={-1}
+                    max={1}
+                    step={0.01}
+                    value={selectedTrack.pan}
+                    onChange={(e) => applyTrackPatch(selectedTrack.id, { pan: Number(e.target.value) })}
+                  />
+                </div>
+                <button className={selectedTrack.muted ? 'state-active' : ''} onClick={() => applyTrackPatch(selectedTrack.id, { muted: !selectedTrack.muted })}>
+                  {selectedTrack.muted ? 'Unmute' : 'Mute'}
+                </button>
+                <button className={selectedTrack.solo ? 'state-active' : ''} onClick={() => applyTrackPatch(selectedTrack.id, { solo: !selectedTrack.solo })}>
+                  {selectedTrack.solo ? 'Solo Off' : 'Solo'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="editor-action-cluster">
+            <div className="button-row compact-actions compact-actions-tight">
+              <button onClick={copyCurrentPattern}>Copy</button>
+              <button onClick={pastePatternToCurrentBar} disabled={!clipboardPattern}>
+                Paste
+              </button>
+              <button className={`transport-button ${isPlaying ? 'state-active' : ''}`} onClick={() => startPlayback()}>
+                Play
+              </button>
+              <button className={`transport-button ${!isPlaying ? 'state-active' : ''}`} onClick={() => stopPlayback('Stopped')}>
+                Stop
+              </button>
+            </div>
+            {selectedTrack?.trackType !== 'drum' && (
+              <div className="octave-switch-row">
+                <span className="toolbar-label">Octave</span>
+                <button onClick={() => setEditorOctave((current) => clampEditorOctave(current - 1))} disabled={editorOctave <= MIN_EDITOR_OCTAVE}>
+                  -
+                </button>
+                <div className="octave-readout">C{editorOctave} to C{editorOctave + 1}</div>
+                <button onClick={() => setEditorOctave((current) => clampEditorOctave(current + 1))} disabled={editorOctave >= MAX_EDITOR_OCTAVE}>
+                  +
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="editor-toolbar">
-          <div className="editor-selection-box">
-            {!selectedEvent && <span className="small">Tap an empty cell to place a note. Tap the same start cell again to remove it.</span>}
+        <div className="editor-toolbar compact-editor-toolbar">
+          <div className="editor-selection-box compact-selection-box">
+            {!selectedEvent && <span className="small">Tap the grid directly to place a note. New notes start at len 1.</span>}
             {selectedEvent?.kind === 'note' && (
               <>
                 <span className="selection-text">Selected: {midiToNoteName(selectedEvent.pitch)} / {selectedEvent.length} step</span>
@@ -738,9 +779,9 @@ export default function ComposerApp() {
         </div>
 
         {selectedTrack?.trackType === 'drum' ? (
-          <div className="drum-board-wrap">
-            <div className="drum-board">
-              <div className="step-number-row">
+          <div className="drum-board-wrap compact-grid-wrap">
+            <div className="drum-board compact-grid-board">
+              <div className="step-number-row compact-step-row">
                 <div className="lane-label lane-label-header">lane</div>
                 {Array.from({ length: 16 }, (_, step) => (
                   <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''}`}>
@@ -749,7 +790,7 @@ export default function ComposerApp() {
                 ))}
               </div>
               {DRUM_ROWS.map((drumType) => (
-                <div key={drumType} className="drum-row">
+                <div key={drumType} className="drum-row compact-grid-row">
                   <div className="lane-label">{drumType}</div>
                   {Array.from({ length: 16 }, (_, step) => {
                     const event = getEventAtStep(selectedPattern, step);
@@ -770,9 +811,9 @@ export default function ComposerApp() {
             </div>
           </div>
         ) : (
-          <div className="staff-wrap">
-            <div className="staff-board">
-              <div className="step-number-row">
+          <div className="staff-wrap compact-grid-wrap">
+            <div className="staff-board compact-grid-board">
+              <div className="step-number-row compact-step-row">
                 <div className="lane-label lane-label-header">pitch</div>
                 {Array.from({ length: 16 }, (_, step) => (
                   <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''}`}>
@@ -780,12 +821,12 @@ export default function ComposerApp() {
                   </div>
                 ))}
               </div>
-              {NOTE_ROWS.map((row) => {
+              {visibleNoteRows.map((row) => {
                 const noteName = midiToNoteName(row.midi);
                 const isStaffLine = STAFF_LINE_CLASSES.has(row.midi % 12);
                 const isNatural = !noteName.includes('#') && !noteName.includes('b');
                 return (
-                  <div key={row.midi} className={`staff-row ${isStaffLine ? 'staff-line' : ''} ${isNatural ? 'natural-row' : 'accidental-row'}`}>
+                  <div key={row.midi} className={`staff-row compact-grid-row ${isStaffLine ? 'staff-line' : ''} ${isNatural ? 'natural-row' : 'accidental-row'}`}>
                     <div className="lane-label">{noteName}</div>
                     {Array.from({ length: 16 }, (_, step) => {
                       const startEvent = getEventAtStep(selectedPattern, step);
@@ -793,10 +834,7 @@ export default function ComposerApp() {
                       const isStart = startEvent?.kind === 'note' && startEvent.pitch === row.midi;
                       const isHold = Boolean(covering) && !isStart;
                       const isSelected =
-                        selectedEvent?.kind === 'note' &&
-                        covering !== null &&
-                        covering.step === selectedEvent.step &&
-                        covering.pitch === row.midi;
+                        selectedEvent?.kind === 'note' && covering !== null && covering.step === selectedEvent.step && covering.pitch === row.midi;
                       return (
                         <button
                           key={`${row.midi}-${step}`}
@@ -838,8 +876,8 @@ export default function ComposerApp() {
           </div>
         </div>
         <div className="help-copy compact-help-copy">
-          <p className="small">Select a bar in Arrangement, choose a track, then tap the grid directly.</p>
-          <p className="small">Copy stores the selected track and bar. Paste applies it to the currently selected bar.</p>
+          <p className="small">Pick a bar in Arrangement, choose a track near the editor, then tap the grid directly.</p>
+          <p className="small">Use the octave switch to move the visible range without limiting the notes you can place.</p>
         </div>
       </section>
 
