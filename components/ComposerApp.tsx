@@ -19,6 +19,7 @@ const DRUM_ROWS: DrumType[] = ['kick', 'snare', 'hat'];
 const LENGTH_OPTIONS = [1, 2, 3, 4] as const;
 const STAFF_LINE_CLASSES = new Set([0, 4, 7, 11]);
 const NATURAL_NOTE_SEQUENCE = ['B', 'A', 'G', 'F', 'E', 'D', 'C'] as const;
+const CHROMATIC_NOTE_SEQUENCE = ['B', 'A#', 'A', 'G#', 'G', 'F#', 'F', 'E', 'D#', 'D', 'C#', 'C'] as const;
 const MIN_EDITOR_OCTAVE = 1;
 const MAX_EDITOR_OCTAVE = 7;
 
@@ -66,8 +67,9 @@ function getDefaultEditorOctave(track: Track | undefined) {
   return 4;
 }
 
-function getVisibleNoteRows(octave: number) {
-  return NATURAL_NOTE_SEQUENCE.map((name) => {
+function getVisibleNoteRows(octave: number, mode: 'natural' | 'chromatic') {
+  const sequence = mode === 'chromatic' ? CHROMATIC_NOTE_SEQUENCE : NATURAL_NOTE_SEQUENCE;
+  return sequence.map((name) => {
     const noteName = `${name}${octave}`;
     return { name: noteName, midi: noteNameToMidi(noteName) };
   });
@@ -109,6 +111,8 @@ export default function ComposerApp() {
   const [clipboardMeta, setClipboardMeta] = useState<{ barIndex: number; trackName: string } | null>(null);
   const [selectedEventStep, setSelectedEventStep] = useState<number | null>(null);
   const [editorOctave, setEditorOctave] = useState<number>(4);
+  const [editorOctaveByTrack, setEditorOctaveByTrack] = useState<Record<string, number>>({ t1: 4, t2: 4, t3: 3 });
+  const [pitchViewMode, setPitchViewMode] = useState<'natural' | 'chromatic'>('natural');
   const audioContextRef = useRef<AudioContext | null>(null);
   const intervalRef = useRef<number | null>(null);
   const schedulerRef = useRef<number | null>(null);
@@ -130,13 +134,23 @@ export default function ComposerApp() {
     [project.tracks, selectedTrackId],
   );
 
-  const visibleNoteRows = useMemo(() => getVisibleNoteRows(editorOctave), [editorOctave]);
+  const visibleNoteRows = useMemo(() => getVisibleNoteRows(editorOctave, pitchViewMode), [editorOctave, pitchViewMode]);
 
   const selectedPattern = useMemo(() => getPattern(project, selectedTrackId, selectedBar), [project, selectedTrackId, selectedBar]);
   const selectedEvent = useMemo(() => {
     if (selectedEventStep === null) return null;
     return getEventAtStep(selectedPattern, selectedEventStep);
   }, [selectedEventStep, selectedPattern]);
+
+  const stepIndicators = useMemo(() => {
+    return Array.from({ length: 16 }, (_, step) => {
+      const startEvent = selectedPattern?.events.find((event) => event.step === step) ?? null;
+      if (!startEvent) return '';
+      if (startEvent.kind === 'drum') return '•';
+      const octave = Math.floor(startEvent.pitch / 12) - 1;
+      return String(octave);
+    });
+  }, [selectedPattern]);
 
   useEffect(() => {
     setSelectedEventStep(null);
@@ -151,7 +165,7 @@ export default function ComposerApp() {
     const nextTrack = project.tracks.find((track) => track.id === trackId);
     setSelectedTrackId(trackId);
     if (nextTrack && nextTrack.trackType !== 'drum') {
-      setEditorOctave(getDefaultEditorOctave(nextTrack));
+      setEditorOctave(editorOctaveByTrack[trackId] ?? getDefaultEditorOctave(nextTrack));
     }
   };
 
@@ -391,7 +405,12 @@ export default function ComposerApp() {
     setSelectedTrackId(data.tracks[0]?.id ?? 't1');
     setSelectedBar(0);
     setSelectedEventStep(null);
-    setEditorOctave(getDefaultEditorOctave(data.tracks[0]));
+    const nextOctaves: Record<string, number> = {};
+    data.tracks.forEach((track) => {
+      nextOctaves[track.id] = getDefaultEditorOctave(track);
+    });
+    setEditorOctaveByTrack(nextOctaves);
+    setEditorOctave(nextOctaves[data.tracks[0]?.id ?? 't1'] ?? getDefaultEditorOctave(data.tracks[0]));
     setStatus('Project loaded');
   };
 
@@ -461,7 +480,12 @@ export default function ComposerApp() {
                   setSelectedTrackId('t1');
                   setSelectedBar(0);
                   setSelectedEventStep(null);
-                  setEditorOctave(getDefaultEditorOctave(freshProject.tracks[0]));
+                  const nextOctaves: Record<string, number> = {};
+                  freshProject.tracks.forEach((track) => {
+                    nextOctaves[track.id] = getDefaultEditorOctave(track);
+                  });
+                  setEditorOctaveByTrack(nextOctaves);
+                  setEditorOctave(nextOctaves[freshProject.tracks[0]?.id ?? 't1'] ?? getDefaultEditorOctave(freshProject.tracks[0]));
                 }}
               >
                 New
@@ -731,12 +755,35 @@ export default function ComposerApp() {
             </div>
             {selectedTrack?.trackType !== 'drum' && (
               <div className="octave-switch-row">
+                <span className="toolbar-label">View</span>
+                <div className="pitch-mode-toggle">
+                  <button className={pitchViewMode === 'natural' ? 'state-active' : ''} onClick={() => setPitchViewMode('natural')}>
+                    7 tones
+                  </button>
+                  <button className={pitchViewMode === 'chromatic' ? 'state-active' : ''} onClick={() => setPitchViewMode('chromatic')}>
+                    12 tones
+                  </button>
+                </div>
                 <span className="toolbar-label">Octave</span>
-                <button onClick={() => setEditorOctave((current) => clampEditorOctave(current - 1))} disabled={editorOctave <= MIN_EDITOR_OCTAVE}>
+                <button
+                  onClick={() => {
+                    const next = clampEditorOctave(editorOctave - 1);
+                    setEditorOctave(next);
+                    setEditorOctaveByTrack((current) => ({ ...current, [selectedTrack.id]: next }));
+                  }}
+                  disabled={editorOctave <= MIN_EDITOR_OCTAVE}
+                >
                   -
                 </button>
                 <div className="octave-readout">C{editorOctave} to B{editorOctave}</div>
-                <button onClick={() => setEditorOctave((current) => clampEditorOctave(current + 1))} disabled={editorOctave >= MAX_EDITOR_OCTAVE}>
+                <button
+                  onClick={() => {
+                    const next = clampEditorOctave(editorOctave + 1);
+                    setEditorOctave(next);
+                    setEditorOctaveByTrack((current) => ({ ...current, [selectedTrack.id]: next }));
+                  }}
+                  disabled={editorOctave >= MAX_EDITOR_OCTAVE}
+                >
                   +
                 </button>
               </div>
@@ -782,11 +829,15 @@ export default function ComposerApp() {
             <div className="drum-board compact-grid-board">
               <div className="step-number-row compact-step-row">
                 <div className="lane-label lane-label-header">lane</div>
-                {Array.from({ length: 16 }, (_, step) => (
-                  <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''}`}>
-                    {step + 1}
-                  </div>
-                ))}
+                {Array.from({ length: 16 }, (_, step) => {
+                  const indicator = stepIndicators[step];
+                  return (
+                    <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''} ${indicator ? 'has-event' : ''}`}>
+                      <span className="step-number-main">{step + 1}</span>
+                      {indicator ? <span className="step-number-badge">{indicator}</span> : null}
+                    </div>
+                  );
+                })}
               </div>
               {DRUM_ROWS.map((drumType) => (
                 <div key={drumType} className="drum-row compact-grid-row">
@@ -814,11 +865,15 @@ export default function ComposerApp() {
             <div className="staff-board compact-grid-board">
               <div className="step-number-row compact-step-row">
                 <div className="lane-label lane-label-header">pitch</div>
-                {Array.from({ length: 16 }, (_, step) => (
-                  <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''}`}>
-                    {step + 1}
-                  </div>
-                ))}
+                {Array.from({ length: 16 }, (_, step) => {
+                  const indicator = stepIndicators[step];
+                  return (
+                    <div key={step} className={`step-number ${playingStep === step ? 'playing' : ''} ${indicator ? 'has-event' : ''}`}>
+                      <span className="step-number-main">{step + 1}</span>
+                      {indicator ? <span className="step-number-badge">{indicator}</span> : null}
+                    </div>
+                  );
+                })}
               </div>
               {visibleNoteRows.map((row) => {
                 const noteName = row.name;

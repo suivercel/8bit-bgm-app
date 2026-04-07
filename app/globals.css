@@ -374,3 +374,25 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   .chip { min-height: 36px; }
   .compact-actions button { flex: 1 1 130px; }
 }
+
+.pitch-mode-toggle {
+  display: inline-flex;
+  gap: 6px;
+}
+.step-number {
+  gap: 1px;
+  flex-direction: column;
+}
+.step-number-main {
+  line-height: 1;
+}
+.step-number-badge {
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text);
+}
+.step-number.has-event {
+  border-color: #111111;
+  color: var(--text);
+}
