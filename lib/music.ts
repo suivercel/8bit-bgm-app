@@ -13,15 +13,9 @@ export function noteNameToMidi(noteName: string): number {
   if (!match) return 60;
 
   const [, root, accidental = '', octaveStr] = match;
-  const normalized = `${root}${accidental}`;
-  const enharmonicMap: Record<string, string> = {
-    Db: 'C#',
-    D#: 'Eb',
-    Gb: 'F#',
-    G#: 'Ab',
-    A#: 'Bb',
-  };
-  const canonicalName = enharmonicMap[normalized] || normalized;
+  const normalized = `${root}${accidental === 'b' ? 'b' : accidental}`;
+  const sharpMap: Record<string, string> = { Db: 'C#', Gb: 'F#', Ab: 'G#', Bb: 'A#' };
+  const name = sharpMap[normalized] || normalized;
   const noteIndexMap: Record<string, number> = {
     C: 0,
     'C#': 1,
@@ -35,9 +29,10 @@ export function noteNameToMidi(noteName: string): number {
     A: 9,
     Bb: 10,
     B: 11,
+    'G#': 8,
+    'A#': 10,
   };
-
-  return (Number(octaveStr) + 1) * 12 + (noteIndexMap[canonicalName] ?? 0);
+  return (Number(octaveStr) + 1) * 12 + (noteIndexMap[name] ?? 0);
 }
 
 export function getPattern(project: MusicProject, trackId: string, barIndex: number) {
