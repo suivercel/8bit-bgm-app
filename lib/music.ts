@@ -14,16 +14,8 @@ export function noteNameToMidi(noteName: string): number {
 
   const [, root, accidental = '', octaveStr] = match;
   const normalized = `${root}${accidental === 'b' ? 'b' : accidental}`;
-  const aliasMap: Record<string, string> = {
-    Db: 'C#',
-    D#: 'Eb',
-    Gb: 'F#',
-    G#: 'Ab',
-    Ab: 'G#',
-    A#: 'Bb',
-    Bb: 'A#',
-  };
-  const name = aliasMap[normalized] || normalized;
+  const sharpMap: Record<string, string> = { Db: 'C#', Gb: 'F#', Ab: 'G#', Bb: 'A#' };
+  const name = sharpMap[normalized] || normalized;
   const noteIndexMap: Record<string, number> = {
     C: 0,
     'C#': 1,
