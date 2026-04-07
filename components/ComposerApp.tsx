@@ -18,9 +18,9 @@ const KEY_OPTIONS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb',
 const DRUM_ROWS: DrumType[] = ['kick', 'snare', 'hat'];
 const LENGTH_OPTIONS = [1, 2, 3, 4] as const;
 const STAFF_LINE_CLASSES = new Set([0, 4, 7, 11]);
-const NOTE_SEQUENCE = ['C', 'B', 'Bb', 'A', 'Ab', 'G', 'F#', 'F', 'E', 'Eb', 'D', 'C#', 'C'];
+const NATURAL_NOTE_SEQUENCE = ['B', 'A', 'G', 'F', 'E', 'D', 'C'] as const;
 const MIN_EDITOR_OCTAVE = 1;
-const MAX_EDITOR_OCTAVE = 6;
+const MAX_EDITOR_OCTAVE = 7;
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -67,9 +67,8 @@ function getDefaultEditorOctave(track: Track | undefined) {
 }
 
 function getVisibleNoteRows(octave: number) {
-  return NOTE_SEQUENCE.map((name) => {
-    const octaveNumber = name === 'C' ? octave + 1 : octave;
-    const noteName = `${name}${octaveNumber}`;
+  return NATURAL_NOTE_SEQUENCE.map((name) => {
+    const noteName = `${name}${octave}`;
     return { name: noteName, midi: noteNameToMidi(noteName) };
   });
 }
@@ -664,7 +663,7 @@ export default function ComposerApp() {
             <h2>Pattern Editor</h2>
             <p className="small compact-editor-meta">
               bar {selectedBar + 1} / {selectedTrack?.name}
-              {selectedTrack?.trackType !== 'drum' ? ` / view ${editorOctave}-${editorOctave + 1} octave` : ''}
+              {selectedTrack?.trackType !== 'drum' ? ` / view C${editorOctave}-B${editorOctave}` : ''}
               {clipboardMeta ? ` / clipboard: ${clipboardMeta.trackName} bar ${clipboardMeta.barIndex + 1}` : ''}
             </p>
           </div>
@@ -736,7 +735,7 @@ export default function ComposerApp() {
                 <button onClick={() => setEditorOctave((current) => clampEditorOctave(current - 1))} disabled={editorOctave <= MIN_EDITOR_OCTAVE}>
                   -
                 </button>
-                <div className="octave-readout">C{editorOctave} to C{editorOctave + 1}</div>
+                <div className="octave-readout">C{editorOctave} to B{editorOctave}</div>
                 <button onClick={() => setEditorOctave((current) => clampEditorOctave(current + 1))} disabled={editorOctave >= MAX_EDITOR_OCTAVE}>
                   +
                 </button>
@@ -822,11 +821,10 @@ export default function ComposerApp() {
                 ))}
               </div>
               {visibleNoteRows.map((row) => {
-                const noteName = midiToNoteName(row.midi);
+                const noteName = row.name;
                 const isStaffLine = STAFF_LINE_CLASSES.has(row.midi % 12);
-                const isNatural = !noteName.includes('#') && !noteName.includes('b');
                 return (
-                  <div key={row.midi} className={`staff-row compact-grid-row ${isStaffLine ? 'staff-line' : ''} ${isNatural ? 'natural-row' : 'accidental-row'}`}>
+                  <div key={row.midi} className={`staff-row compact-grid-row natural-row ${isStaffLine ? 'staff-line' : ''}`}>
                     <div className="lane-label">{noteName}</div>
                     {Array.from({ length: 16 }, (_, step) => {
                       const startEvent = getEventAtStep(selectedPattern, step);
@@ -877,7 +875,7 @@ export default function ComposerApp() {
         </div>
         <div className="help-copy compact-help-copy">
           <p className="small">Pick a bar in Arrangement, choose a track near the editor, then tap the grid directly.</p>
-          <p className="small">Use the octave switch to move the visible range without limiting the notes you can place.</p>
+          <p className="small">Use the octave switch to change the visible octave. Drum lanes stay fixed as kick, snare, and hat.</p>
         </div>
       </section>
 
