@@ -1,6 +1,40 @@
 import { midiToFrequency, getStepDurationSeconds, isTrackAudible } from './music';
 import { DrumEvent, MusicProject, NoteEvent, PatternEvent, Track } from './types';
 
+const TRACK_GAIN_MULTIPLIER: Record<string, number> = {
+  lead: 1.0,
+  sub: 1.0,
+  bass: 2.0,
+  drum: 1.6,
+};
+
+const DRUM_GAIN_MULTIPLIER: Record<DrumEvent['drumType'], number> = {
+  kick: 2.2,
+  snare: 1.4,
+  hat: 1.2,
+};
+
+function getTrackGainMultiplier(track: Track) {
+  const type = track.trackType.toLowerCase();
+  if (type in TRACK_GAIN_MULTIPLIER) return TRACK_GAIN_MULTIPLIER[type];
+
+  const name = track.name.toLowerCase();
+  if (name.includes('lead')) return TRACK_GAIN_MULTIPLIER.lead;
+  if (name.includes('sub')) return TRACK_GAIN_MULTIPLIER.sub;
+  if (name.includes('bass')) return TRACK_GAIN_MULTIPLIER.bass;
+  if (name.includes('drum')) return TRACK_GAIN_MULTIPLIER.drum;
+
+  const wave = track.waveType.toLowerCase();
+  if (wave === 'triangle') return TRACK_GAIN_MULTIPLIER.bass;
+  if (wave === 'noise') return TRACK_GAIN_MULTIPLIER.drum;
+
+  return 1.0;
+}
+
+function getDrumGainMultiplier(drumType: DrumEvent['drumType']) {
+  return DRUM_GAIN_MULTIPLIER[drumType] ?? 1.0;
+}
+
 function createNoiseBuffer(context: BaseAudioContext) {
   const buffer = context.createBuffer(1, context.sampleRate * 0.2, context.sampleRate);
   const data = buffer.getChannelData(0);
@@ -93,11 +127,16 @@ function scheduleEvent(
   stepDuration: number,
   masterVolume: number,
 ) {
-  const volume = Math.max(0.0001, track.volume * masterVolume * ('velocity' in event ? event.velocity : 1));
+  const trackGain = getTrackGainMultiplier(track);
+  const volume = Math.max(
+    0.0001,
+    track.volume * masterVolume * ('velocity' in event ? event.velocity : 1) * trackGain,
+  );
   const pan = track.pan;
 
   if (event.kind === 'drum') {
-    scheduleNoise(context, destination, event, startTime, volume, pan);
+    const drumVolume = volume * getDrumGainMultiplier(event.drumType);
+    scheduleNoise(context, destination, event, startTime, drumVolume, pan);
     return;
   }
 
