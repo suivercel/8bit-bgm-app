@@ -69,9 +69,14 @@ function scheduleNoise(
   }
 
   const gainNode = context.createGain();
-  const eventVolume = event.drumType === 'hat' ? volume * 0.45 : volume * 0.8;
+
+  const drumMultiplier = event.drumType === 'kick' ? 2.5 : event.drumType === 'snare' ? 1.2 : 0.6;
+  const eventVolume = volume * drumMultiplier;
   gainNode.gain.setValueAtTime(eventVolume, startTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + (event.drumType === 'hat' ? 0.05 : 0.12));
+  gainNode.gain.exponentialRampToValueAtTime(
+    0.0001,
+    startTime + (event.drumType === 'kick' ? 0.18 : event.drumType === 'hat' ? 0.06 : 0.14)
+  );
 
   const panner = new StereoPannerNode(context as AudioContext, { pan });
 

@@ -8,7 +8,7 @@ const tracks: Track[] = [
     waveType: 'pulse',
     muted: false,
     solo: false,
-    volume: 0.8,
+    volume: 0.7,
     pan: -0.15,
     octaveShift: 0,
     instrumentSettings: {
@@ -25,7 +25,7 @@ const tracks: Track[] = [
     waveType: 'pulse',
     muted: false,
     solo: false,
-    volume: 0.65,
+    volume: 0.6,
     pan: 0.15,
     octaveShift: 0,
     instrumentSettings: {
@@ -42,7 +42,7 @@ const tracks: Track[] = [
     waveType: 'triangle',
     muted: false,
     solo: false,
-    volume: 0.7,
+    volume: 0.85,
     pan: 0,
     octaveShift: -1,
     instrumentSettings: {
@@ -57,7 +57,7 @@ const tracks: Track[] = [
     waveType: 'noise',
     muted: false,
     solo: false,
-    volume: 0.9,
+    volume: 1.0,
     pan: 0,
     octaveShift: 0,
     instrumentSettings: {
