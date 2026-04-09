@@ -8,7 +8,7 @@ const tracks: Track[] = [
     waveType: 'pulse',
     muted: false,
     solo: false,
-    volume: 0.7,
+    volume: 0.55,   // 0.7 → 0.55: 他トラックとのバランス確保のため抑制
     pan: -0.15,
     octaveShift: 0,
     instrumentSettings: {
@@ -25,9 +25,9 @@ const tracks: Track[] = [
     waveType: 'pulse',
     muted: false,
     solo: false,
-    volume: 0.6,
+    volume: 0.45,   // 0.6 → 0.45: Lead と被らないよう抑制
     pan: 0.15,
-    octaveShift: 0,
+    octaveShift: -1, // 0 → -1: sub として1オクターブ下げ、Lead と音域を分離
     instrumentSettings: {
       pulseWidth: 0.25,
       attack: 0.01,
@@ -42,9 +42,9 @@ const tracks: Track[] = [
     waveType: 'triangle',
     muted: false,
     solo: false,
-    volume: 0.85,
+    volume: 0.95,   // 0.85 → 0.95: 低域・triangle は小さいスピーカーで埋もれやすいため補強
     pan: 0,
-    octaveShift: -1,
+    octaveShift: 0,  // -1 → 0: 実音域を C3-B3 に上げ、小さいスピーカーでも聞こえやすく
     instrumentSettings: {
       attack: 0.01,
       release: 0.05,
@@ -57,7 +57,7 @@ const tracks: Track[] = [
     waveType: 'noise',
     muted: false,
     solo: false,
-    volume: 0.8,
+    volume: 0.9,    // 0.8 → 0.9: ドラム全体の存在感を上げる
     pan: 0,
     octaveShift: 0,
     instrumentSettings: {

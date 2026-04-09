@@ -53,41 +53,89 @@ function scheduleNoise(
   volume: number,
   pan: number,
 ) {
-  const source = context.createBufferSource();
-  source.buffer = createNoiseBuffer(context);
-
-  const filter = context.createBiquadFilter();
-  if (event.drumType === 'kick') {
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(180, startTime);
-  } else if (event.drumType === 'snare') {
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(1200, startTime);
-    filter.Q.value = 0.8;
-  } else {
-    filter.type = 'highpass';
-    filter.frequency.setValueAtTime(5000, startTime);
-  }
-
-  const boostMap = { kick: 4.0, snare: 2.5, hat: 1.2 } as const;
-  const eventVolume = volume * boostMap[event.drumType];
-
-  const gainNode = context.createGain();
-  gainNode.gain.setValueAtTime(eventVolume, startTime);
-  gainNode.gain.exponentialRampToValueAtTime(
-    0.0001,
-    startTime + (event.drumType === 'kick' ? 0.20 : event.drumType === 'snare' ? 0.14 : 0.06),
-  );
-
   const panner = new StereoPannerNode(context as AudioContext, { pan });
-
-  source.connect(filter);
-  filter.connect(gainNode);
-  gainNode.connect(panner);
   panner.connect(destination);
 
-  source.start(startTime);
-  source.stop(startTime + 0.25);
+  if (event.drumType === 'kick') {
+    // --- kick: 正弦波の胴鳴り（ピッチダウン）+ ノイズのアタック層を合成 ---
+    const boostVolume = volume * 10.0;
+
+    // 正弦波レイヤー: 120Hz → 50Hz へピッチダウンして胴鳴りを再現
+    const sineOsc = context.createOscillator();
+    sineOsc.type = 'sine';
+    sineOsc.frequency.setValueAtTime(120, startTime);
+    sineOsc.frequency.exponentialRampToValueAtTime(50, startTime + 0.08);
+
+    const sineGain = context.createGain();
+    sineGain.gain.setValueAtTime(boostVolume, startTime);
+    sineGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.30);
+
+    sineOsc.connect(sineGain);
+    sineGain.connect(panner);
+    sineOsc.start(startTime);
+    sineOsc.stop(startTime + 0.35);
+
+    // ノイズレイヤー: 2kHz 以下を通してアタックの「バスッ」感を追加
+    const noiseSource = context.createBufferSource();
+    noiseSource.buffer = createNoiseBuffer(context);
+
+    const noiseFilter = context.createBiquadFilter();
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.setValueAtTime(2000, startTime);
+
+    const noiseGain = context.createGain();
+    noiseGain.gain.setValueAtTime(boostVolume * 0.6, startTime);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.06);
+
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(panner);
+    noiseSource.start(startTime);
+    noiseSource.stop(startTime + 0.10);
+
+  } else if (event.drumType === 'snare') {
+    // --- snare: 帯域を広げ（800-3000Hz）、ノイズ層を強化 ---
+    const boostVolume = volume * 6.0;
+
+    const source = context.createBufferSource();
+    source.buffer = createNoiseBuffer(context);
+
+    const filter = context.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1800, startTime);
+    filter.Q.value = 0.5;
+
+    const gainNode = context.createGain();
+    gainNode.gain.setValueAtTime(boostVolume, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.18);
+
+    source.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(panner);
+    source.start(startTime);
+    source.stop(startTime + 0.25);
+
+  } else {
+    // --- hat: highpass はそのままに boost を強化 ---
+    const boostVolume = volume * 4.0;
+
+    const source = context.createBufferSource();
+    source.buffer = createNoiseBuffer(context);
+
+    const filter = context.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.setValueAtTime(5000, startTime);
+
+    const gainNode = context.createGain();
+    gainNode.gain.setValueAtTime(boostVolume, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.08);
+
+    source.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(panner);
+    source.start(startTime);
+    source.stop(startTime + 0.12);
+  }
 }
 
 function scheduleEvent(
