@@ -57,7 +57,7 @@ const tracks: Track[] = [
     waveType: 'noise',
     muted: false,
     solo: false,
-    volume: 1.0,
+    volume: 0.8,
     pan: 0,
     octaveShift: 0,
     instrumentSettings: {

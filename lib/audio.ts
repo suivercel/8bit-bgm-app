@@ -63,19 +63,20 @@ function scheduleNoise(
   } else if (event.drumType === 'snare') {
     filter.type = 'bandpass';
     filter.frequency.setValueAtTime(1200, startTime);
+    filter.Q.value = 0.8;
   } else {
     filter.type = 'highpass';
     filter.frequency.setValueAtTime(5000, startTime);
   }
 
-  const gainNode = context.createGain();
+  const boostMap = { kick: 4.0, snare: 2.5, hat: 1.2 } as const;
+  const eventVolume = volume * boostMap[event.drumType];
 
-  const drumMultiplier = event.drumType === 'kick' ? 2.5 : event.drumType === 'snare' ? 1.2 : 0.6;
-  const eventVolume = volume * drumMultiplier;
+  const gainNode = context.createGain();
   gainNode.gain.setValueAtTime(eventVolume, startTime);
   gainNode.gain.exponentialRampToValueAtTime(
     0.0001,
-    startTime + (event.drumType === 'kick' ? 0.18 : event.drumType === 'hat' ? 0.06 : 0.14)
+    startTime + (event.drumType === 'kick' ? 0.20 : event.drumType === 'snare' ? 0.14 : 0.06),
   );
 
   const panner = new StereoPannerNode(context as AudioContext, { pan });
@@ -86,7 +87,7 @@ function scheduleNoise(
   panner.connect(destination);
 
   source.start(startTime);
-  source.stop(startTime + 0.15);
+  source.stop(startTime + 0.25);
 }
 
 function scheduleEvent(
@@ -98,7 +99,11 @@ function scheduleEvent(
   stepDuration: number,
   masterVolume: number,
 ) {
-  const volume = Math.max(0.0001, track.volume * masterVolume * ('velocity' in event ? event.velocity : 1));
+  const volume = Math.max(
+    0.0001,
+    track.volume * masterVolume * (event.kind === 'note' ? event.velocity : 1),
+  );
+
   const pan = track.pan;
 
   if (event.kind === 'drum') {
